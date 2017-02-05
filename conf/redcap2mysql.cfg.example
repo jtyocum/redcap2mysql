@@ -1,0 +1,23 @@
+[redcap]
+redcap_url = https://localhost/API/
+redcap_key = 0123456789ABCDEF
+
+[mysql]
+mysql_host = localhost
+mysql_db = db
+
+; This is the mysql login-path as set by mysql_config_editor.
+; This utility allows for storing an encrypted password.
+; Leave it commented out unless you are using this method.
+#mysql_path = 
+
+; Preferably, get username and password by other methods.
+; Leave these commented out unless needed as last resort.
+#mysql_user = 
+#mysql_pwd = 
+
+[mysql-ssl]
+ssl_ca = /path/to/ca-cert.pem
+ssl_cert = /path/to/client-cert.pem
+ssl_key = /path/to/client-key.pem
+
