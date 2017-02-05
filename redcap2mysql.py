@@ -129,8 +129,9 @@ db = create_engine(
 # Todo: Process one form at a time instead of all at once. See above.
 project = redcap.Project(redcap_url, redcap_key)
 data = project.export_records(format='df', 
-    df_kwargs={'index_col': project.field_names[1]})
-print(data.dtypes.index)
+    df_kwargs={'index_col': False})
+data = data.reset_index()
+data.insert(0, 'id', range(1, 1 + len(data)))
 
 # --------------------
 # Send data to MySQL
@@ -139,4 +140,4 @@ print(data.dtypes.index)
 # Todo: Be smarter about this section. See above.
 # Todo: Process one form at a time instead of all at once. See above.
 # Replace database table if it already exists. Todo: Be smarter. Append. See above.
-data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=True)
+data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=False)
