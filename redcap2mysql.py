@@ -130,7 +130,6 @@ db = create_engine(
 project = redcap.Project(redcap_url, redcap_key)
 data = project.export_records(format='df', 
     df_kwargs={'index_col': False})
-data = data.reset_index()
 data.insert(0, 'id', range(1, 1 + len(data)))
 
 # --------------------
