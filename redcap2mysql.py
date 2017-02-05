@@ -122,16 +122,15 @@ db = create_engine(
 #    - Take hash of metadata and store in log for checking against later.
 # 4. Process forms separately so a change in one form does not affect tables.
 
-# Remove database table if it already exists. Todo: Be smarter. See above.
-sql.execute('DROP TABLE IF EXISTS %s' % mysql_table, db)
-
 # ----------------
 # Get REDCap data
 # ----------------
 
-project = redcap.Project(redcap_url, redcap_key)
 # Todo: Process one form at a time instead of all at once. See above.
-data = project.export_records(format='df')
+project = redcap.Project(redcap_url, redcap_key)
+data = project.export_records(format='df', 
+    df_kwargs={'index_col': project.field_names[1]})
+print(data.dtypes.index)
 
 # --------------------
 # Send data to MySQL
@@ -139,4 +138,5 @@ data = project.export_records(format='df')
 
 # Todo: Be smarter about this section. See above.
 # Todo: Process one form at a time instead of all at once. See above.
-data.to_sql(name=mysql_table, con=db, if_exists = 'append', index=False)
+# Replace database table if it already exists. Todo: Be smarter. Append. See above.
+data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=True)
