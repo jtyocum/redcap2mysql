@@ -7,7 +7,7 @@
 # access will be over SSL, so you need an SSL key and certs.
 
 # Requires Python 2.7, SQLAlchemy, pandas, mylogin, ConfigParser,
-#          mysql.connector, and a config file (see below).
+#          mysql.connector, getpass, PyCap, and a config file (see below).
 
 # Use Python 3 style print statements.
 from __future__ import print_function
@@ -20,6 +20,7 @@ from sys import exit
 import os
 import mylogin
 from pandas.io import sql
+import getpass
 import redcap
 import pandas as pd
 
