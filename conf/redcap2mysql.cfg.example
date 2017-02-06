@@ -1,6 +1,14 @@
+
+; The commented-out (#) entries may be left as-is. Others should be set by you.
+
+[global]
+#log_file = redcap2mysql.log
+#log_timestamp_format = %%Y-%%m-%%d %%H:%%M:%%S %%Z
+
 [redcap]
 redcap_url = https://localhost/API/
 redcap_key = 0123456789ABCDEF
+#redcap_event_name_maxlen = 50
 
 [mysql]
 mysql_host = localhost

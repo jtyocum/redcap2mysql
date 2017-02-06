@@ -28,7 +28,8 @@ import hashlib
 import logging
 import socket
 from StringIO import StringIO
-import datetime
+import pytz
+from datetime import datetime
 
 # Module installation hints:
 # pip install --user -e git+https://github.com/alorenzo175/mylogin.git#egg=mylogin
@@ -40,15 +41,15 @@ import datetime
 # Todo: Add input data validation for all configuration parameters.
 
 config_file = 'conf/redcap2mysql.cfg'    # See conf/redcap2mysql.cfg.example
-log_file = 'redcap2mysql.log'
-logging.basicConfig(filename=log_file, level=logging.DEBUG, 
-    format='%(asctime)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S %Z')
+log_level = logging.DEBUG
 
 # Configure parameters with defaults. Use a config file for most of these.
 config = ConfigParser.SafeConfigParser(
-    {'mysql_host': 'localhost', 'mysql_db': 'db',  
-     'mysql_path': '', 'mysql_user': '', 'mysql_pwd': '',
-     'redcap_url': 'https://localhost/API/', 'redcap_key': '0123456789ABCDEF'})
+    {'log_file': 'redcap2mysql.log', 
+    'log_timestamp_format': '%Y-%m-%d %H:%M:%S %Z', 'mysql_host': 'localhost', 
+     'mysql_db': 'db', 'mysql_path': '', 'mysql_user': '', 'mysql_pwd': '',
+     'redcap_url': 'https://localhost/API/', 'redcap_key': '0123456789ABCDEF',
+     'redcap_event_name_maxlen': '50'})
 
 if os.path.isfile(config_file) == True:
     config.read(config_file)
@@ -56,15 +57,23 @@ else:
     print("Can't find config file: " + config_file)
     exit(1)
 
+log_timestamp_format = config.get('global', 'log_timestamp_format', 0)
+log_file = config.get('global', 'log_file', 0)
 mysql_host = config.get('mysql', 'mysql_host', 0)
 mysql_db = config.get('mysql', 'mysql_db', 0)
 mysql_path = config.get('mysql', 'mysql_path', 0)
 mysql_user = config.get('mysql', 'mysql_user', 0)
 redcap_url = config.get('redcap', 'redcap_url', 0)
 redcap_key = config.get('redcap', 'redcap_key', 0)
+redcap_event_name_maxlen = int(
+    config.get('redcap', 'redcap_event_name_maxlen', 0))
 ssl_ca = config.get('mysql-ssl', 'ssl_ca', 0)
 ssl_cert = config.get('mysql-ssl', 'ssl_cert', 0)
 ssl_key = config.get('mysql-ssl', 'ssl_key', 0)
+
+# Set log level and timestamp format
+logging.basicConfig(filename=log_file, level=log_level, 
+    format='%(asctime)s %(message)s', datefmt=log_timestamp_format)
 
 # Get username from the operating system, if it is blank (default).
 if mysql_user == '':
@@ -136,6 +145,7 @@ db = create_engine(
 # Todo: Add docstrings
 
 def getdata(csv_file, redcap_key, redcap_url, content):
+    """Get REDCap data as a CSV file with an API key, URL and content type."""
     with open(csv_file, 'wb') as f:
         c = pycurl.Curl()
         c.setopt(c.URL, redcap_url)
@@ -156,6 +166,7 @@ def getdata(csv_file, redcap_key, redcap_url, content):
             exit(2)
 
 def parsecsv(csv_file):
+    """Parse a CSV file with Pandas, with basic checks and error handling."""
     if os.path.isfile(csv_file) == True:
         try:
             data = pd.read_csv(csv_file, index_col=False)
@@ -173,53 +184,78 @@ def parsecsv(csv_file):
     data.insert(0, 'id', range(1, 1 + len(data)))
     return(data)
 
-def hashcsv(csv_file):
-    import hashlib
+def hashfile(file_name):
+    """Create a hash of a file."""
     BLOCKSIZE = 65536
     hasher = hashlib.sha1()
-    with open(csv_file, 'rb') as afile:
+    with open(file_name, 'rb') as afile:
         buf = afile.read(BLOCKSIZE)
         while len(buf) > 0:
             hasher.update(buf)
             buf = afile.read(BLOCKSIZE)
     return(hasher.hexdigest())
 
-def send_to_db(csv_file, redcap_key, redcap_url, dataset, db_handle, mysql_user, 
-               mysql_table, log_table):
+def send_to_db(csv_file, dataset, mysql_table, log_table, 
+               redcap_key = redcap_key, redcap_url = redcap_url, 
+               db_handle = db, mysql_user = mysql_user,
+               redcap_event_name_maxlen = redcap_event_name_maxlen):
+    """Send data from REDCap to a MySQL (or MariaDB) database.""" 
     #
     # Todo: Process one form at a time instead of all at once. See above.
-    #       Replace database table if it already exists. Todo: Append.
-
+    #       Replace database table if it already exists. Todo: See below.
+    
+    # Get the data from REDCap.
     getdata(csv_file, redcap_key, redcap_url, dataset)
     data = parsecsv(csv_file)
     
+    # Calculate the file size and a hash (checksum) for recording in the log.
     csv_file_size = os.path.getsize(csv_file)
-    csv_file_hash = hashcsv(csv_file)
+    csv_file_hash = hashfile(csv_file)
     
+    # Todo: If dataset == 'metadata' and csv_file_hash does not match the
+    #       previous value (for the more recent update), then save
+    #       the old rcmeta and rcform tables with a datestamped name suffix
+    #       and create new tables for 'metadata' for 'record' data.
+    
+    # Set the data type for the redcap_event_name if this column is present.
+    data_dtype_dict = {}
+    if 'redcap_event_name' in data.columns:
+        data_dtype_dict = {'redcap_event_name':String(redcap_event_name_maxlen)}
+    
+    # Send the data to the database.
     data.to_sql(name=mysql_table, con=db_handle, if_exists = 'replace', 
-        index=False)
+        index=False, dtype=data_dtype_dict)
     
-    timestamp = '{:%Y-%m-%d %H:%M:%S}'.format(datetime.datetime.now())
+    # Create a timestamp for the log message. Use UTC for timezone consistency.
+    timestamp = '{:%Y-%m-%dT%H:%M:%SZ}'.format(
+        datetime.utcnow().replace(tzinfo=pytz.utc))
+    
+    # Create the log message string as a comma-separated list of values. 
     log_str = '{0},{1},{2},{3},{4},{5},{6},{7},{8}'.format(
         timestamp, mysql_user, socket.gethostname(), len(data.index), 
         len(data.columns), mysql_table, csv_file, csv_file_size, csv_file_hash)
     
+    # Create a dataframe for the log message.
     log_df = pd.read_csv(StringIO(log_str), header=None, index_col=False)
-    log_df.columns = ['timestamp', 'user', 'host', 'num_rows', 'num_cols', 
-        'table_name', 'file_name', 'size', 'hash']
+    log_df.columns = ['timestamp_utc', 'user_name', 'host_name', 'num_rows', 
+        'num_cols', 'table_name', 'file_name', 'size_bytes', 'sha1_hash']
     
+    # Convert the timestamp column to the datetime data type.
+    log_df.timestamp_utc = pd.to_datetime(
+        log_df.timestamp_utc, yearfirst=True, utc=True)
+    
+    # Send the log message dataframe to the database.
     log_df.to_sql(name=log_table, con=db_handle, if_exists = 'append', 
-        index=False)
+        index=False, dtype={'timestamp_utc':DateTime})
     
+    # Write the log message to the log file.
     logging.info("to " + log_table + ": " + log_str)
-
 
 # Get REDCap data and send to MySQL
 
-# Send records
-send_to_db('rcform.csv', redcap_key, redcap_url, 'record', 
-    db, mysql_user, 'rcform', 'rcxfer')
-
 # Send metadata
-send_to_db('rcmeta.csv', redcap_key, redcap_url, 'metadata', 
-    db, mysql_user, 'rcmeta', 'rcxfer')
+send_to_db('rcmeta.csv', 'metadata', 'rcmeta', 'rcxfer')
+
+# Send records
+send_to_db('rcform.csv', 'record', 'rcform', 'rcxfer')
+
