@@ -7,7 +7,7 @@
 # access will be over SSL, so you need an SSL key and certs.
 
 # Requires Python 2.7, SQLAlchemy, pandas, mylogin, ConfigParser,
-#          mysql.connector, getpass, PyCap, and a config file (see below).
+#          mysql.connector, getpass, and a config file (see below).
 
 # Use Python 3 style print statements.
 from __future__ import print_function
@@ -21,12 +21,13 @@ import os
 import mylogin
 from pandas.io import sql
 import getpass
-import redcap
 import pandas as pd
+import pycurl
+from urllib import urlencode
+
 
 # Module installation hints:
 # pip install --user -e git+https://github.com/alorenzo175/mylogin.git#egg=mylogin
-# pip install --user PyCap
 
 # --------------
 # Configuration
@@ -126,11 +127,26 @@ db = create_engine(
 # Get REDCap data
 # ----------------
 
+def getdata(csv_file, redcap_key, redcap_url):
+    with open('out.csv', 'wb') as f:
+        c = pycurl.Curl()
+        c.setopt(c.URL, redcap_url)
+        c.setopt(c.FOLLOWLOCATION, True)
+        post_data = {'token': redcap_key, 'content': 'record',
+                'type': 'flat', 'format': 'csv'}
+        postfields = urlencode(post_data)
+        c.setopt(c.POSTFIELDS, postfields)
+        c.setopt(c.WRITEDATA, f)
+        c.perform()
+        c.close()
+
 # Todo: Process one form at a time instead of all at once. See above.
-project = redcap.Project(redcap_url, redcap_key)
-data = project.export_records(format='df', 
-    df_kwargs={'index_col': False})
+csv_file = 'out.csv'
+getdata(csv_file, redcap_key, redcap_url)
+data = pd.read_csv(csv_file, index_col=False)
+
 data.insert(0, 'id', range(1, 1 + len(data)))
+data.set_index(['id'], inplace=True)
 
 # --------------------
 # Send data to MySQL
@@ -139,4 +155,4 @@ data.insert(0, 'id', range(1, 1 + len(data)))
 # Todo: Be smarter about this section. See above.
 # Todo: Process one form at a time instead of all at once. See above.
 # Replace database table if it already exists. Todo: Be smarter. Append. See above.
-data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=False)
+data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=True)
