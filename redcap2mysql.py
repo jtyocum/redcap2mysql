@@ -92,8 +92,7 @@ if mysql_pwd == '':
             print("mylogin error: {0}".format(err))
     if mysql_pwd == '':
         # Alternatively, prompt for the password. More secure, but won't work unattended.
-        mysql_pwd = getpass.getpass()   # Uncomment to prompt for the password.
-
+        mysql_pwd = getpass.getpass()
 
 # Configure SSL settings.
 ssl_args = {
@@ -146,7 +145,6 @@ def getdata(csv_file, redcap_key, redcap_url):
             print("Can't fetch REDCap data. Check config file: " + config_file)
             exit(2)
 
-
 # Todo: Process one form at a time instead of all at once. See above.
 getdata(csv_file, redcap_key, redcap_url)
 
@@ -167,6 +165,5 @@ data.insert(0, 'id', range(1, 1 + len(data)))
 # --------------------
 
 # Todo: Be smarter about this section. See above.
-# Todo: Process one form at a time instead of all at once. See above.
-# Replace database table if it already exists. Todo: Be smarter. Append. See above.
+# Replace database table if it already exists.
 data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=False)
