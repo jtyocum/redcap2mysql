@@ -35,6 +35,7 @@ from urllib import urlencode
 
 config_file = 'conf/redcap2mysql.cfg'    # See conf/redcap2mysql.cfg.example
 mysql_table = 'rcform'                   # Todo: Store in config file (use as prefix)
+csv_file = 'rcform.csv'                  # Todo: Store in config file
 
 # Configure connection parameters with defaults. Use a config file for most of these.
 config = ConfigParser.SafeConfigParser(
@@ -128,7 +129,7 @@ db = create_engine(
 # ----------------
 
 def getdata(csv_file, redcap_key, redcap_url):
-    with open('out.csv', 'wb') as f:
+    with open(csv_file, 'wb') as f:
         c = pycurl.Curl()
         c.setopt(c.URL, redcap_url)
         c.setopt(c.FOLLOWLOCATION, True)
@@ -137,13 +138,28 @@ def getdata(csv_file, redcap_key, redcap_url):
         postfields = urlencode(post_data)
         c.setopt(c.POSTFIELDS, postfields)
         c.setopt(c.WRITEDATA, f)
-        c.perform()
-        c.close()
+        try:
+            c.perform()
+            c.close()
+        except pycurl.error, err:
+            c.close()
+            print("Can't fetch data from REDCap. Check configuration file.")
+            exit(2)
+
 
 # Todo: Process one form at a time instead of all at once. See above.
-csv_file = 'out.csv'
 getdata(csv_file, redcap_key, redcap_url)
-data = pd.read_csv(csv_file, index_col=False)
+
+if os.path.isfile(csv_file) == True:
+    try:
+        data = pd.read_csv(csv_file, index_col=False)
+    except pd.parser.CParserError, err:
+        print("Can't parse REDCap data. Check contents of " + csv_file + " file.")
+        exit(3) 
+else:
+    print("Can't read csv file: " + csv_file)
+    exit(4)
+
 data.insert(0, 'id', range(1, 1 + len(data)))
 
 # --------------------
