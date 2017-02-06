@@ -44,7 +44,7 @@ log_file = 'redcap2mysql.log'
 logging.basicConfig(filename=log_file, level=logging.DEBUG, 
     format='%(asctime)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S %Z')
 
-# Configure connection parameters with defaults. Use a config file for most of these.
+# Configure parameters with defaults. Use a config file for most of these.
 config = ConfigParser.SafeConfigParser(
     {'mysql_host': 'localhost', 'mysql_db': 'db',  
      'mysql_path': '', 'mysql_user': '', 'mysql_pwd': '',
@@ -82,14 +82,14 @@ if mysql_user == '':
 # 2. Read encrypted password created by mysql_config_editor.
 # 3. Read password as entered manually from a console prompt.
 
-# First try the config file. This is the least secure method.
+# First try the config file. This is the least secure method. Protect the file.
 mysql_pwd = config.get('mysql', 'mysql_pwd', 0)
 
 # Try other two methods if config file password is blank or missing.
 if mysql_pwd == '':
     if mysql_path != '':
         # Read encrypted password and decrypt it with mylogin module.
-        # While better than using clear-text, this method is still not very secure.
+        # While better than clear-text, be careful about securing the pw file.
         # However, it's probably the best method for unattended use.
         try:
             # Get encrypted password. This requires the mylogin module.
@@ -98,7 +98,7 @@ if mysql_pwd == '':
         except mylogin.exception.UtilError as err:
             print("mylogin error: {0}".format(err))
     if mysql_pwd == '':
-        # Alternatively, prompt for the password. More secure, but won't work unattended.
+        # Prompt for the password. More secure, but won't work unattended.
         mysql_pwd = getpass.getpass()
 
 # Configure SSL settings.
@@ -115,8 +115,8 @@ ssl_args = {
 
 DB_URI = "mysql+mysqlconnector://{user}:{password}@{host}:{port}/{db}"
 db = create_engine(
-    DB_URI.format( user=mysql_user, password=mysql_pwd, host=mysql_host, port='3306', 
-        db=mysql_db), connect_args = ssl_args )
+    DB_URI.format( user=mysql_user, password=mysql_pwd, host=mysql_host, 
+        port='3306', db=mysql_db), connect_args = ssl_args )
 
 # --------------
 # Transfer data
@@ -124,12 +124,11 @@ db = create_engine(
 
 # Todo:
 #
-# 1. Log operations in db and in a text file.
-# 2. Don't just remove old table, but append new data to it.
+# 1. Don't just remove old table, but append new data to it.
 #    - Compare against log and db table to discern what data is new.
-# 3. Check metadata and create new table only if any structural changes.
+# 2. Check metadata and create new table only if any structural changes.
 #    - Take hash of metadata and store in log for checking against later.
-# 4. Process forms separately so a change in one form does not affect tables.
+# 3. Process forms separately so a change in one form does not affect tables.
 
 
 # Define functions
@@ -151,7 +150,7 @@ def getdata(csv_file, redcap_key, redcap_url, content):
             c.close()
         except pycurl.error, err:
             c.close()
-            message = "Can't fetch REDCap data. Check config file: " + config_file
+            message = "Can't fetch data. Check config file: " + config_file
             print(message)
             logging.warning(message)
             exit(2)
@@ -185,38 +184,42 @@ def hashcsv(csv_file):
             buf = afile.read(BLOCKSIZE)
     return(hasher.hexdigest())
 
-# Get REDCap data and send to MySQL
-#
-# Todo: Process one form at a time instead of all at once. See above.
-#       Replace database table if it already exists. Todo: Append.
+def send_to_db(csv_file, redcap_key, redcap_url, dataset, db_handle, mysql_user, 
+               mysql_table, log_table):
+    #
+    # Todo: Process one form at a time instead of all at once. See above.
+    #       Replace database table if it already exists. Todo: Append.
 
-# Define functions
-#
-# Todo: Add docstrings
-
-def send_to_db(csv_file, dataset, mysql_table):
-	getdata(csv_file, redcap_key, redcap_url, dataset)
-	data = parsecsv(csv_file)
+    getdata(csv_file, redcap_key, redcap_url, dataset)
+    data = parsecsv(csv_file)
     
-	csv_file_size = os.path.getsize(csv_file)
-	csv_file_hash = hashcsv(csv_file)
+    csv_file_size = os.path.getsize(csv_file)
+    csv_file_hash = hashcsv(csv_file)
     
-	data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=False)
+    data.to_sql(name=mysql_table, con=db_handle, if_exists = 'replace', 
+        index=False)
     
-	timestamp = '{:%Y-%m-%d %H:%M:%S}'.format(datetime.datetime.now())
-	log_str = '{0},{1},{2},{3},{4},{5},{6},{7},{8}'.format(
-		timestamp, mysql_user, socket.gethostname(), len(data.index), 
-		len(data.columns), mysql_table, csv_file, csv_file_size, csv_file_hash)
-	logging.info("to xfer_log: " + log_str)
+    timestamp = '{:%Y-%m-%d %H:%M:%S}'.format(datetime.datetime.now())
+    log_str = '{0},{1},{2},{3},{4},{5},{6},{7},{8}'.format(
+        timestamp, mysql_user, socket.gethostname(), len(data.index), 
+        len(data.columns), mysql_table, csv_file, csv_file_size, csv_file_hash)
     
-	log_df = pd.read_csv(StringIO(log_str), header=None, index_col=False)
-	log_df.columns = ['timestamp', 'user', 'host', 'num_rows', 'num_cols', 
+    log_df = pd.read_csv(StringIO(log_str), header=None, index_col=False)
+    log_df.columns = ['timestamp', 'user', 'host', 'num_rows', 'num_cols', 
         'table_name', 'file_name', 'size', 'hash']
-	log_df.to_sql(name='xfer_log', con=db, if_exists = 'append', index=False)
+    
+    log_df.to_sql(name=log_table, con=db_handle, if_exists = 'append', 
+        index=False)
+    
+    logging.info("to " + log_table + ": " + log_str)
 
+
+# Get REDCap data and send to MySQL
 
 # Send records
-send_to_db('rcform.csv', 'record', 'rcform')
+send_to_db('rcform.csv', redcap_key, redcap_url, 'record', 
+    db, mysql_user, 'rcform', 'rcxfer')
 
 # Send metadata
-send_to_db('rcmeta.csv', 'metadata', 'rcmeta')
+send_to_db('rcmeta.csv', redcap_key, redcap_url, 'metadata', 
+    db, mysql_user, 'rcmeta', 'rcxfer')
