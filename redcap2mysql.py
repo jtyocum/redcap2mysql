@@ -139,10 +139,7 @@ db = create_engine(
 #    - Take hash of metadata and store in log for checking against later.
 # 3. Process forms separately so a change in one form does not affect tables.
 
-
 # Define functions
-#
-# Todo: Add docstrings
 
 def getdata(csv_file, redcap_key, redcap_url, content):
     """Get REDCap data as a CSV file with an API key, URL and content type."""
@@ -226,7 +223,7 @@ def send_to_db(csv_file, dataset, mysql_table, log_table,
     data.to_sql(name=mysql_table, con=db_handle, if_exists = 'replace', 
         index=False, dtype=data_dtype_dict)
     
-    # Create a timestamp for the log message. Use UTC for timezone consistency.
+    # Create a ISO 8601 timestamp for logging. Use UTC for timezone consistency.
     timestamp = '{:%Y-%m-%dT%H:%M:%SZ}'.format(
         datetime.utcnow().replace(tzinfo=pytz.utc))
     
@@ -258,4 +255,3 @@ send_to_db('rcmeta.csv', 'metadata', 'rcmeta', 'rcxfer')
 
 # Send records
 send_to_db('rcform.csv', 'record', 'rcform', 'rcxfer')
-
