@@ -27,6 +27,8 @@ from urllib import urlencode
 import hashlib
 import logging
 import socket
+from StringIO import StringIO
+import datetime
 
 # Module installation hints:
 # pip install --user -e git+https://github.com/alorenzo175/mylogin.git#egg=mylogin
@@ -188,38 +190,33 @@ def hashcsv(csv_file):
 # Todo: Process one form at a time instead of all at once. See above.
 #       Replace database table if it already exists. Todo: Append.
 
-# Records
-csv_file = 'rcform.csv'
-getdata(csv_file, redcap_key, redcap_url, 'record')
-data = parsecsv(csv_file)
+# Define functions
+#
+# Todo: Add docstrings
 
-message = '{0}@{1} parsed {2}, size {3} bytes, sha1 {4}'.format(
-    mysql_user, socket.gethostname(), csv_file, os.path.getsize(csv_file), 
-    hashcsv(csv_file))
-logging.info(message)
+def send_to_db(csv_file, dataset, mysql_table):
+	getdata(csv_file, redcap_key, redcap_url, dataset)
+	data = parsecsv(csv_file)
+    
+	csv_file_size = os.path.getsize(csv_file)
+	csv_file_hash = hashcsv(csv_file)
+    
+	data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=False)
+    
+	timestamp = '{:%Y-%m-%d %H:%M:%S}'.format(datetime.datetime.now())
+	log_str = '{0},{1},{2},{3},{4},{5},{6},{7},{8}'.format(
+		timestamp, mysql_user, socket.gethostname(), len(data.index), 
+		len(data.columns), mysql_table, csv_file, csv_file_size, csv_file_hash)
+	logging.info("to xfer_log: " + log_str)
+    
+	log_df = pd.read_csv(StringIO(log_str), header=None, index_col=False)
+	log_df.columns = ['timestamp', 'user', 'host', 'num_rows', 'num_cols', 
+        'table_name', 'file_name', 'size', 'hash']
+	log_df.to_sql(name='xfer_log', con=db, if_exists = 'append', index=False)
 
-mysql_table = 'rcform'
-data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=False)
 
-message = '{0}@{1} wrote {2} rows and {3} columns to table {4}'.format(
-    mysql_user, socket.gethostname(), len(data.index), len(data.columns), 
-    mysql_table)
-logging.info(message)
+# Send records
+send_to_db('rcform.csv', 'record', 'rcform')
 
-# Metadata
-csv_file = 'rcmeta.csv'
-getdata(csv_file, redcap_key, redcap_url, 'metadata')
-data = parsecsv(csv_file)
-
-message = '{0}@{1} parsed {2}, size {3} bytes, sha1 {4}'.format(
-    mysql_user, socket.gethostname(), csv_file, os.path.getsize(csv_file), 
-    hashcsv(csv_file))
-logging.info(message)
-
-mysql_table = 'rcmeta'
-data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=False)
-
-message = '{0}@{1} wrote {2} rows and {3} columns to table {4}'.format(
-    mysql_user, socket.gethostname(), len(data.index), len(data.columns), 
-    mysql_table)
-logging.info(message)
+# Send metadata
+send_to_db('rcmeta.csv', 'metadata', 'rcmeta')
