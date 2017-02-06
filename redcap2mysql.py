@@ -33,9 +33,9 @@ from urllib import urlencode
 # Configuration
 # --------------
 
+# Todo: Add input data validation for all configuration parameters.
+
 config_file = 'conf/redcap2mysql.cfg'    # See conf/redcap2mysql.cfg.example
-mysql_table = 'rcform'                   # Todo: Store in config file (use as prefix)
-csv_file = 'rcform.csv'                  # Todo: Store in config file
 
 # Configure connection parameters with defaults. Use a config file for most of these.
 config = ConfigParser.SafeConfigParser(
@@ -102,19 +102,20 @@ ssl_args = {
     'ssl_key': ssl_key,
 }
 
-# Create database connection.
+# ---------------------------
+# Create database connection
+# ---------------------------
+
 DB_URI = "mysql+mysqlconnector://{user}:{password}@{host}:{port}/{db}"
 db = create_engine(
     DB_URI.format( user=mysql_user, password=mysql_pwd, host=mysql_host, port='3306', 
         db=mysql_db), connect_args = ssl_args )
 
-# ----------------------------------
-# Transfer data from REDCap to MySQL
-# ----------------------------------
+# --------------
+# Transfer data
+# --------------
 
-# ---------------------------
-# Todo
-# ---------------------------
+# Todo:
 #
 # 1. Log operations in db and in a text file.
 # 2. Don't just remove old table, but append new data to it.
@@ -123,16 +124,17 @@ db = create_engine(
 #    - Take hash of metadata and store in log for checking against later.
 # 4. Process forms separately so a change in one form does not affect tables.
 
-# ----------------
-# Get REDCap data
-# ----------------
 
-def getdata(csv_file, redcap_key, redcap_url):
+# Define functions
+#
+# Todo: Add docstrings
+
+def getdata(csv_file, redcap_key, redcap_url, content):
     with open(csv_file, 'wb') as f:
         c = pycurl.Curl()
         c.setopt(c.URL, redcap_url)
         c.setopt(c.FOLLOWLOCATION, True)
-        post_data = {'token': redcap_key, 'content': 'record',
+        post_data = {'token': redcap_key, 'content': content,
                 'type': 'flat', 'format': 'csv'}
         postfields = urlencode(post_data)
         c.setopt(c.POSTFIELDS, postfields)
@@ -145,25 +147,35 @@ def getdata(csv_file, redcap_key, redcap_url):
             print("Can't fetch REDCap data. Check config file: " + config_file)
             exit(2)
 
+def parsecsv(csv_file):
+    if os.path.isfile(csv_file) == True:
+        try:
+            data = pd.read_csv(csv_file, index_col=False)
+        except pd.parser.CParserError, err:
+            print("Can't parse REDCap data. Check csv file: " + csv_file)
+            exit(3) 
+    else:
+        print("Can't read csv file: " + csv_file)
+        exit(4)
+    
+    data.insert(0, 'id', range(1, 1 + len(data)))
+    return(data)
+
+# Get REDCap data and send to MySQL
+#
 # Todo: Process one form at a time instead of all at once. See above.
-getdata(csv_file, redcap_key, redcap_url)
+#       Replace database table if it already exists. Todo: Append.
 
-if os.path.isfile(csv_file) == True:
-    try:
-        data = pd.read_csv(csv_file, index_col=False)
-    except pd.parser.CParserError, err:
-        print("Can't parse REDCap data. Check csv file: " + csv_file)
-        exit(3) 
-else:
-    print("Can't read csv file: " + csv_file)
-    exit(4)
+# Records
+csv_file = 'rcform.csv'
+getdata(csv_file, redcap_key, redcap_url, 'record')
+data = parsecsv(csv_file)
+mysql_table = 'rcform'
+data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=False)
 
-data.insert(0, 'id', range(1, 1 + len(data)))
-
-# --------------------
-# Send data to MySQL
-# --------------------
-
-# Todo: Be smarter about this section. See above.
-# Replace database table if it already exists.
+# Metadata
+csv_file = 'rcmeta.csv'
+getdata(csv_file, redcap_key, redcap_url, 'metadata')
+data = parsecsv(csv_file)
+mysql_table = 'rcmeta'
 data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=False)
