@@ -30,6 +30,7 @@ import socket
 from StringIO import StringIO
 import pytz
 from datetime import datetime
+import re
 
 # Module installation hints:
 # pip install --user -e git+https://github.com/alorenzo175/mylogin.git#egg=mylogin
@@ -40,8 +41,8 @@ from datetime import datetime
 
 # Todo: Add input data validation for all configuration parameters.
 
-config_file = 'conf/redcap2mysql.cfg'    # See conf/redcap2mysql.cfg.example
-log_level = logging.DEBUG
+config_file = 'conf/redcap2mysql.cfg'   # See conf/redcap2mysql.cfg.example
+log_level = logging.DEBUG               # Set to logging.DEBUG or logging.INFO
 
 # Configure parameters with defaults. Use a config file for most of these.
 config = ConfigParser.SafeConfigParser(
@@ -49,7 +50,7 @@ config = ConfigParser.SafeConfigParser(
     'log_timestamp_format': '%Y-%m-%d %H:%M:%S %Z', 'mysql_host': 'localhost', 
      'mysql_db': 'db', 'mysql_path': '', 'mysql_user': '', 'mysql_pwd': '',
      'redcap_url': 'https://localhost/API/', 'redcap_key': '0123456789ABCDEF',
-     'redcap_event_name_maxlen': '50'})
+     'redcap_event_name_maxlen': '100'})
 
 if os.path.isfile(config_file) == True:
     config.read(config_file)
@@ -72,7 +73,7 @@ ssl_cert = config.get('mysql-ssl', 'ssl_cert', 0)
 ssl_key = config.get('mysql-ssl', 'ssl_key', 0)
 
 # Set log level and timestamp format
-logging.basicConfig(filename=log_file, level=log_level, 
+logging.basicConfig(filename=log_file, level=logging.DEBUG, 
     format='%(asctime)s %(message)s', datefmt=log_timestamp_format)
 
 # Get username from the operating system, if it is blank (default).
@@ -148,7 +149,7 @@ def getdata(csv_file, redcap_key, redcap_url, content):
         c.setopt(c.URL, redcap_url)
         c.setopt(c.FOLLOWLOCATION, True)
         post_data = {'token': redcap_key, 'content': content,
-                'type': 'flat', 'format': 'csv'}
+                'type': 'flat', 'format': 'csv', 'exportSurveyFields': 'True'}
         postfields = urlencode(post_data)
         c.setopt(c.POSTFIELDS, postfields)
         c.setopt(c.WRITEDATA, f)
@@ -217,7 +218,13 @@ def send_to_db(csv_file, dataset, mysql_table, log_table,
     # Set the data type for the redcap_event_name if this column is present.
     data_dtype_dict = {}
     if 'redcap_event_name' in data.columns:
-        data_dtype_dict = {'redcap_event_name':String(redcap_event_name_maxlen)}
+        data_dtype_dict['redcap_event_name'] = String(redcap_event_name_maxlen)
+    
+    # Set the data type for variables ending with _timestamp as DateTime
+    r = re.compile('.*_timestamp$')
+    timestamp_columns = filter(r.match, list(data.columns.values))
+    for column in timestamp_columns:
+        data_dtype_dict[column] = DateTime
     
     # Send the data to the database.
     data.to_sql(name=mysql_table, con=db_handle, if_exists = 'replace', 
@@ -252,6 +259,12 @@ def send_to_db(csv_file, dataset, mysql_table, log_table,
 
 # Send metadata
 send_to_db('rcmeta.csv', 'metadata', 'rcmeta', 'rcxfer')
+
+# Send events
+send_to_db('rcevent.csv', 'event', 'rcevent', 'rcxfer')
+
+# Send users
+send_to_db('rcuser.csv', 'user', 'rcuser', 'rcxfer')
 
 # Send records
 send_to_db('rcform.csv', 'record', 'rcform', 'rcxfer')
