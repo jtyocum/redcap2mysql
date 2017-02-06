@@ -143,7 +143,7 @@ def getdata(csv_file, redcap_key, redcap_url):
             c.close()
         except pycurl.error, err:
             c.close()
-            print("Can't fetch data from REDCap. Check configuration file.")
+            print("Can't fetch REDCap data. Check config file: " + config_file)
             exit(2)
 
 
@@ -154,7 +154,7 @@ if os.path.isfile(csv_file) == True:
     try:
         data = pd.read_csv(csv_file, index_col=False)
     except pd.parser.CParserError, err:
-        print("Can't parse REDCap data. Check contents of " + csv_file + " file.")
+        print("Can't parse REDCap data. Check csv file: " + csv_file)
         exit(3) 
 else:
     print("Can't read csv file: " + csv_file)
