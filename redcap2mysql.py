@@ -144,9 +144,7 @@ def getdata(csv_file, redcap_key, redcap_url):
 csv_file = 'out.csv'
 getdata(csv_file, redcap_key, redcap_url)
 data = pd.read_csv(csv_file, index_col=False)
-
 data.insert(0, 'id', range(1, 1 + len(data)))
-data.set_index(['id'], inplace=True)
 
 # --------------------
 # Send data to MySQL
@@ -155,4 +153,4 @@ data.set_index(['id'], inplace=True)
 # Todo: Be smarter about this section. See above.
 # Todo: Process one form at a time instead of all at once. See above.
 # Replace database table if it already exists. Todo: Be smarter. Append. See above.
-data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=True)
+data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=False)
