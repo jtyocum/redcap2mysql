@@ -91,3 +91,4 @@ ENV/
 # Project-specific files
 *.cfg
 *.csv
+*.log

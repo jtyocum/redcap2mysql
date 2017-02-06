@@ -6,13 +6,13 @@
 # You need to have a REDCap project and a MySQL database. MySQL
 # access will be over SSL, so you need an SSL key and certs.
 
-# Requires Python 2.7, SQLAlchemy, pandas, mylogin, ConfigParser,
-#          mysql.connector, getpass, and a config file (see below).
+# Requires Python 2.7, a config file, and the packages imported below.
 
 # Use Python 3 style print statements.
 from __future__ import print_function
 
-import ConfigParser   # Will be called 'configparser' in Python 3
+# Import packages
+import ConfigParser
 import mysql.connector
 from mysql.connector.constants import ClientFlag
 from sqlalchemy import *
@@ -24,7 +24,9 @@ import getpass
 import pandas as pd
 import pycurl
 from urllib import urlencode
-
+import hashlib
+import logging
+import socket
 
 # Module installation hints:
 # pip install --user -e git+https://github.com/alorenzo175/mylogin.git#egg=mylogin
@@ -36,6 +38,9 @@ from urllib import urlencode
 # Todo: Add input data validation for all configuration parameters.
 
 config_file = 'conf/redcap2mysql.cfg'    # See conf/redcap2mysql.cfg.example
+log_file = 'redcap2mysql.log'
+logging.basicConfig(filename=log_file, level=logging.DEBUG, 
+    format='%(asctime)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S %Z')
 
 # Configure connection parameters with defaults. Use a config file for most of these.
 config = ConfigParser.SafeConfigParser(
@@ -144,7 +149,9 @@ def getdata(csv_file, redcap_key, redcap_url, content):
             c.close()
         except pycurl.error, err:
             c.close()
-            print("Can't fetch REDCap data. Check config file: " + config_file)
+            message = "Can't fetch REDCap data. Check config file: " + config_file
+            print(message)
+            logging.warning(message)
             exit(2)
 
 def parsecsv(csv_file):
@@ -152,14 +159,29 @@ def parsecsv(csv_file):
         try:
             data = pd.read_csv(csv_file, index_col=False)
         except pd.parser.CParserError, err:
-            print("Can't parse REDCap data. Check csv file: " + csv_file)
+            message = "Can't parse REDCap data. Check csv file: " + csv_file
+            print(message)
+            logging.warning(message)
             exit(3) 
     else:
-        print("Can't read csv file: " + csv_file)
+        message = "Can't read csv file: " + csv_file
+        print(message)
+        logging.warning(message)
         exit(4)
     
     data.insert(0, 'id', range(1, 1 + len(data)))
     return(data)
+
+def hashcsv(csv_file):
+    import hashlib
+    BLOCKSIZE = 65536
+    hasher = hashlib.sha1()
+    with open(csv_file, 'rb') as afile:
+        buf = afile.read(BLOCKSIZE)
+        while len(buf) > 0:
+            hasher.update(buf)
+            buf = afile.read(BLOCKSIZE)
+    return(hasher.hexdigest())
 
 # Get REDCap data and send to MySQL
 #
@@ -170,12 +192,34 @@ def parsecsv(csv_file):
 csv_file = 'rcform.csv'
 getdata(csv_file, redcap_key, redcap_url, 'record')
 data = parsecsv(csv_file)
+
+message = '{0}@{1} parsed {2}, size {3} bytes, sha1 {4}'.format(
+    mysql_user, socket.gethostname(), csv_file, os.path.getsize(csv_file), 
+    hashcsv(csv_file))
+logging.info(message)
+
 mysql_table = 'rcform'
 data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=False)
+
+message = '{0}@{1} wrote {2} rows and {3} columns to table {4}'.format(
+    mysql_user, socket.gethostname(), len(data.index), len(data.columns), 
+    mysql_table)
+logging.info(message)
 
 # Metadata
 csv_file = 'rcmeta.csv'
 getdata(csv_file, redcap_key, redcap_url, 'metadata')
 data = parsecsv(csv_file)
+
+message = '{0}@{1} parsed {2}, size {3} bytes, sha1 {4}'.format(
+    mysql_user, socket.gethostname(), csv_file, os.path.getsize(csv_file), 
+    hashcsv(csv_file))
+logging.info(message)
+
 mysql_table = 'rcmeta'
 data.to_sql(name=mysql_table, con=db, if_exists = 'replace', index=False)
+
+message = '{0}@{1} wrote {2} rows and {3} columns to table {4}'.format(
+    mysql_user, socket.gethostname(), len(data.index), len(data.columns), 
+    mysql_table)
+logging.info(message)
