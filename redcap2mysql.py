@@ -2,11 +2,22 @@
 
 # Export data from a REDCap project and send to a MySQL database.
 # This is just a *rough* prototype in the *early* stages of development.
-
+#
 # You need to have a REDCap project and a MySQL database. MySQL
 # access will be over SSL, so you need an SSL key and certs.
-
+#
 # Requires Python 2.7, a config file, and the packages imported below.
+#
+# This script can be automated with a utility such as cron. Here is an example
+# crontab entry whcu runs the script every day at 8:55 PM:
+#
+# 55 20 * * * (cd /path/to/folder; /usr/bin/python ./redcap2mysql.py)
+#
+# Todo:
+#
+# 1. Check metadata and create new table only if any structural changes.
+#    - Use metadata hash from log and compare against has from new metadata.
+# 2. Implement local version control for archive of downloaded CSV files.
 
 # Use Python 3 style print statements.
 from __future__ import print_function
@@ -82,8 +93,7 @@ if not os.path.exists(data_path):
     try:
         os.makedirs(data_path)
     except:
-        message = "Can't create destination directory (%s)!" % (data_path)
-        print(message)
+        message = "Can't create folder (%s)! Check config file." % (data_path)
         logging.warning(message)
         raise OSError(message)
 
@@ -139,19 +149,9 @@ db = create_engine(
     DB_URI.format( user=mysql_user, password=mysql_pwd, host=mysql_host, 
         port='3306', db=mysql_db), connect_args = ssl_args )
 
-# --------------
-# Transfer data
-# --------------
-
-# Todo:
-#
-# 1. Don't just remove old table, but append new data to it.
-#    - Compare against log and db table to discern what data is new.
-# 2. Check metadata and create new table only if any structural changes.
-#    - Take hash of metadata and store in log for checking against later.
-# 3. Process forms separately so a change in one form does not affect tables.
-
+# -----------------
 # Define functions
+# -----------------
 
 def getdata(csv_file, redcap_key, redcap_url, content):
     """Get REDCap data as a CSV file with an API key, URL and content type."""
@@ -265,6 +265,10 @@ def send_to_db(csv_file, dataset, mysql_table, log_table,
     
     # Write the log message to the log file.
     logging.info("to " + log_table + ": " + log_str)
+
+# --------------
+# Transfer data
+# --------------
 
 # Get REDCap data and send to MySQL
 
