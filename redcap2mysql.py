@@ -1,12 +1,14 @@
 #!/usr/bin/python
 
 # Export data from a REDCap project and send to a MySQL database.
+# Track changes to transferred data files in local git repository.
+#
 # This is just a *rough* prototype in the *early* stages of development.
 #
 # You need to have a REDCap project and a MySQL database. MySQL
 # access will be over SSL, so you need an SSL key and certs.
 #
-# Requires Python 2.7, a config file, and the packages imported below.
+# Requires Python 2.7, a config file, git, mysql, and the imports listed below.
 #
 # This script can be automated with a utility such as cron. Here is an example
 # crontab entry whcu runs the script every day at 8:55 PM:
@@ -17,7 +19,7 @@
 #
 # 1. Check metadata and create new table only if any structural changes.
 #    - Use metadata hash from log and compare against has from new metadata.
-# 2. Implement local version control for archive of downloaded CSV files.
+# 2. Add input data validation for all configuration parameters.
 
 # Use Python 3 style print statements.
 from __future__ import print_function
@@ -42,6 +44,8 @@ from StringIO import StringIO
 import pytz
 from datetime import datetime
 import re
+import git
+import traceback
 
 # Module installation hints:
 # pip install --user -e git+https://github.com/alorenzo175/mylogin.git#egg=mylogin
@@ -49,8 +53,6 @@ import re
 # --------------
 # Configuration
 # --------------
-
-# Todo: Add input data validation for all configuration parameters.
 
 config_file = 'conf/redcap2mysql.cfg'   # See conf/redcap2mysql.cfg.example
 log_level = logging.DEBUG               # Set to logging.DEBUG or logging.INFO
@@ -88,7 +90,15 @@ ssl_key = config.get('mysql-ssl', 'ssl_key', 0)
 logging.basicConfig(filename=log_file, level=logging.DEBUG, 
     format='%(asctime)s %(message)s', datefmt=log_timestamp_format)
 
-# Create data folder
+# Create a local git repository for downloading and archiving data.
+try:
+    repo = git.Repo.init(data_path)
+except:
+    message = "Can't create git repo (%s)! Check config file." % (data_path)
+    logging.warning(message)
+    raise OSError(message)
+        
+# Create data folder. Should already exist if git repo created without error.
 if not os.path.exists(data_path):
     try:
         os.makedirs(data_path)
@@ -266,6 +276,15 @@ def send_to_db(csv_file, dataset, mysql_table, log_table,
     # Write the log message to the log file.
     logging.info("to " + log_table + ": " + log_str)
 
+def commit_changes(repo):
+    """Track changes to transferred data files in local git repository."""
+    cmd = repo.git
+    cmd.add(all=True)
+    try:
+        cmd.commit(m="redcap2mysql.py data sync")
+    except git.exc.GitCommandError, err:
+        logging.info([traceback.format_exc(limit=1).splitlines()[-1]])
+
 # --------------
 # Transfer data
 # --------------
@@ -283,3 +302,6 @@ send_to_db(os.path.join(data_path, 'rcuser.csv'), 'user', 'rcuser', 'rcxfer')
 
 # Send records
 send_to_db(os.path.join(data_path, 'rcform.csv'), 'record', 'rcform', 'rcxfer')
+
+# Commit changes to local repo
+commit_changes(repo)
