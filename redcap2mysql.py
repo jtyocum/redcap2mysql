@@ -46,7 +46,7 @@ log_level = logging.DEBUG               # Set to logging.DEBUG or logging.INFO
 
 # Configure parameters with defaults. Use a config file for most of these.
 config = ConfigParser.SafeConfigParser(
-    {'log_file': 'redcap2mysql.log', 
+    {'data_path': 'data', 'log_file': 'redcap2mysql.log', 
     'log_timestamp_format': '%Y-%m-%d %H:%M:%S %Z', 'mysql_host': 'localhost', 
      'mysql_db': 'db', 'mysql_path': '', 'mysql_user': '', 'mysql_pwd': '',
      'redcap_url': 'https://localhost/API/', 'redcap_key': '0123456789ABCDEF',
@@ -58,6 +58,7 @@ else:
     print("Can't find config file: " + config_file)
     exit(1)
 
+data_path = config.get('global', 'data_path', 0)
 log_timestamp_format = config.get('global', 'log_timestamp_format', 0)
 log_file = config.get('global', 'log_file', 0)
 mysql_host = config.get('mysql', 'mysql_host', 0)
@@ -75,6 +76,16 @@ ssl_key = config.get('mysql-ssl', 'ssl_key', 0)
 # Set log level and timestamp format
 logging.basicConfig(filename=log_file, level=logging.DEBUG, 
     format='%(asctime)s %(message)s', datefmt=log_timestamp_format)
+
+# Create data folder
+if not os.path.exists(data_path):
+    try:
+        os.makedirs(data_path)
+    except:
+        message = "Can't create destination directory (%s)!" % (data_path)
+        print(message)
+        logging.warning(message)
+        raise OSError(message)
 
 # Get username from the operating system, if it is blank (default).
 if mysql_user == '':
@@ -217,7 +228,7 @@ def send_to_db(csv_file, dataset, mysql_table, log_table,
     
     # Set the data type for the redcap_event_name if this column is present.
     data_dtype_dict = {}
-    if 'redcap_event_name' in data.columns:
+    if 'redcap_event_name' in list(data.columns.values):
         data_dtype_dict['redcap_event_name'] = String(redcap_event_name_maxlen)
     
     # Set the data type for variables ending with _timestamp as DateTime
@@ -258,13 +269,13 @@ def send_to_db(csv_file, dataset, mysql_table, log_table,
 # Get REDCap data and send to MySQL
 
 # Send metadata
-send_to_db('rcmeta.csv', 'metadata', 'rcmeta', 'rcxfer')
+send_to_db(os.path.join(data_path, 'rcmeta.csv'), 'metadata', 'rcmeta', 'rcxfer')
 
 # Send events
-send_to_db('rcevent.csv', 'event', 'rcevent', 'rcxfer')
+send_to_db(os.path.join(data_path, 'rcevent.csv'), 'event', 'rcevent', 'rcxfer')
 
 # Send users
-send_to_db('rcuser.csv', 'user', 'rcuser', 'rcxfer')
+send_to_db(os.path.join(data_path, 'rcuser.csv'), 'user', 'rcuser', 'rcxfer')
 
 # Send records
-send_to_db('rcform.csv', 'record', 'rcform', 'rcxfer')
+send_to_db(os.path.join(data_path, 'rcform.csv'), 'record', 'rcform', 'rcxfer')

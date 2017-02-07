@@ -2,6 +2,7 @@
 ; The commented-out (#) entries may be left as-is. Others should be set by you.
 
 [global]
+#data_path = data
 #log_file = redcap2mysql.log
 #log_timestamp_format = %%Y-%%m-%%d %%H:%%M:%%S %%Z
 
