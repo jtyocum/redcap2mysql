@@ -17,9 +17,7 @@
 #
 # Todo:
 #
-# 1. Check metadata and create new table only if any structural changes.
-#    - Use metadata hash from log and compare against has from new metadata.
-# 2. Add input data validation for all configuration parameters.
+# 1. Add input data validation for all configuration parameters.
 
 # Use Python 3 style print statements.
 from __future__ import print_function
@@ -60,7 +58,7 @@ log_level = logging.DEBUG               # Set to logging.DEBUG or logging.INFO
 # Configure parameters with defaults. Use a config file for most of these.
 config = ConfigParser.SafeConfigParser(
     {'data_path': 'data', 'log_file': 'redcap2mysql.log', 
-    'log_timestamp_format': '%Y-%m-%d %H:%M:%S %Z', 'mysql_host': 'localhost', 
+     'log_timestamp_format': '%Y-%m-%d %H:%M:%S %Z', 'mysql_host': 'localhost', 
      'mysql_db': 'db', 'mysql_path': '', 'mysql_user': '', 'mysql_pwd': '',
      'redcap_url': 'https://localhost/API/', 'redcap_key': '0123456789ABCDEF',
      'redcap_event_name_maxlen': '100'})
@@ -163,7 +161,7 @@ db = create_engine(
 # Define functions
 # -----------------
 
-def getdata(csv_file, redcap_key, redcap_url, content):
+def get_data(csv_file, redcap_key, redcap_url, content):
     """Get REDCap data as a CSV file with an API key, URL and content type."""
     with open(csv_file, 'wb') as f:
         c = pycurl.Curl()
@@ -184,7 +182,30 @@ def getdata(csv_file, redcap_key, redcap_url, content):
             logging.warning(message)
             exit(2)
 
-def parsecsv(csv_file):
+def get_prev_hash(mysql_table, db_handle=db):
+    """Get the sha1 hash of the previously uploaded data for a table."""    
+    # See of the database contains the rcxfer (REDCap transfer log) table.
+    rs = sql.execute('SHOW TABLES LIKE "rcxfer";', db_handle)
+    row0 = rs.fetchone()
+    res = ''
+    if (row0 is not None) and (len(row0) != 0):
+        res = row0[0]
+    
+    # If the table is found, find the most recent hash for the table data.
+    prev_hash = ''
+    if res == 'rcxfer':
+        sql_cmd = 'SELECT sha1_hash FROM rcxfer ' + \
+                  'WHERE table_name = "%s" ' % mysql_table + \
+                  'ORDER BY timestamp_utc DESC ' + \
+                  'LIMIT 1;'
+        rs = sql.execute(sql_cmd, db_handle)
+        row0 = rs.fetchone()
+        if (row0 is not None) and (len(row0) != 0):
+            prev_hash = row0[0]
+    
+    return(prev_hash)
+
+def parse_csv(csv_file):
     """Parse a CSV file with Pandas, with basic checks and error handling."""
     if os.path.isfile(csv_file) == True:
         try:
@@ -203,7 +224,7 @@ def parsecsv(csv_file):
     data.insert(0, 'id', range(1, 1 + len(data)))
     return(data)
 
-def hashfile(file_name):
+def hash_file(file_name):
     """Create a hash of a file."""
     BLOCKSIZE = 65536
     hasher = hashlib.sha1()
@@ -224,57 +245,71 @@ def send_to_db(csv_file, dataset, mysql_table, log_table,
     #       Replace database table if it already exists. Todo: See below.
     
     # Get the data from REDCap.
-    getdata(csv_file, redcap_key, redcap_url, dataset)
-    data = parsecsv(csv_file)
+    get_data(csv_file, redcap_key, redcap_url, dataset)
+    data = parse_csv(csv_file)
     
     # Calculate the file size and a hash (checksum) for recording in the log.
     csv_file_size = os.path.getsize(csv_file)
-    csv_file_hash = hashfile(csv_file)
+    csv_file_hash = hash_file(csv_file)
     
-    # Todo: If dataset == 'metadata' and csv_file_hash does not match the
-    #       previous value (for the more recent update), then save
-    #       the old rcmeta and rcform tables with a datestamped name suffix
-    #       and create new tables for 'metadata' for 'record' data.
+    # If dataset == 'metadata' and csv_file_hash does not match the
+    # previous value ("prev_hash", for the more recent update), then save
+    # the old rcmeta and rcform tables with a datestamped name suffix
+    # and create new tables for 'metadata' for 'record' data.
+    prev_hash_same = False
+    prev_hash = get_prev_hash(mysql_table)
+    if csv_file_hash == prev_hash:
+        prev_hash_same = True
+    else:
+        if prev_hash != '' and dataset == 'metadata':
+            timestamp = '{:%Y%m%dT%H%M%SZ}'.format(
+                datetime.utcnow().replace(tzinfo=pytz.utc))
+            sql.execute('RENAME TABLE %s TO %s;' % \
+                ('rcform', 'rcform_' + timestamp), db_handle)
+            sql.execute('RENAME TABLE %s TO %s;' % \
+                ('rcmeta', 'rcmeta_' + timestamp), db_handle)        
     
-    # Set the data type for the redcap_event_name if this column is present.
-    data_dtype_dict = {}
-    if 'redcap_event_name' in list(data.columns.values):
-        data_dtype_dict['redcap_event_name'] = String(redcap_event_name_maxlen)
-    
-    # Set the data type for variables ending with _timestamp as DateTime
-    r = re.compile('.*_timestamp$')
-    timestamp_columns = filter(r.match, list(data.columns.values))
-    for column in timestamp_columns:
-        data_dtype_dict[column] = DateTime
-    
-    # Send the data to the database.
-    data.to_sql(name=mysql_table, con=db_handle, if_exists = 'replace', 
-        index=False, dtype=data_dtype_dict)
-    
-    # Create a ISO 8601 timestamp for logging. Use UTC for timezone consistency.
-    timestamp = '{:%Y-%m-%dT%H:%M:%SZ}'.format(
-        datetime.utcnow().replace(tzinfo=pytz.utc))
-    
-    # Create the log message string as a comma-separated list of values. 
-    log_str = '{0},{1},{2},{3},{4},{5},{6},{7},{8}'.format(
-        timestamp, mysql_user, socket.gethostname(), len(data.index), 
-        len(data.columns), mysql_table, csv_file, csv_file_size, csv_file_hash)
-    
-    # Create a dataframe for the log message.
-    log_df = pd.read_csv(StringIO(log_str), header=None, index_col=False)
-    log_df.columns = ['timestamp_utc', 'user_name', 'host_name', 'num_rows', 
-        'num_cols', 'table_name', 'file_name', 'size_bytes', 'sha1_hash']
-    
-    # Convert the timestamp column to the datetime data type.
-    log_df.timestamp_utc = pd.to_datetime(
-        log_df.timestamp_utc, yearfirst=True, utc=True)
-    
-    # Send the log message dataframe to the database.
-    log_df.to_sql(name=log_table, con=db_handle, if_exists = 'append', 
-        index=False, dtype={'timestamp_utc':DateTime})
-    
-    # Write the log message to the log file.
-    logging.info("to " + log_table + ": " + log_str)
+    # If the data has changed since the last sync, write to database and log.
+    if prev_hash_same == False:
+        # Set the data type for the redcap_event_name if this column is present.
+        data_dtype_dict = {}
+        if 'redcap_event_name' in list(data.columns.values):
+            data_dtype_dict['redcap_event_name'] = String(redcap_event_name_maxlen)
+        
+        # Set the data type for variables ending with _timestamp as DateTime
+        r = re.compile('.*_timestamp$')
+        timestamp_columns = filter(r.match, list(data.columns.values))
+        for column in timestamp_columns:
+            data_dtype_dict[column] = DateTime
+        
+        # Send the data to the database.
+        data.to_sql(name=mysql_table, con=db_handle, if_exists = 'replace', 
+            index=False, dtype=data_dtype_dict)
+        
+        # Create a ISO 8601 timestamp for logging. Use UTC for timezone consistency.
+        timestamp = '{:%Y-%m-%dT%H:%M:%SZ}'.format(
+            datetime.utcnow().replace(tzinfo=pytz.utc))
+            
+        # Create the log message string as a comma-separated list of values. 
+        log_str = '{0},{1},{2},{3},{4},{5},{6},{7},{8}'.format(
+            timestamp, mysql_user, socket.gethostname(), len(data.index), 
+            len(data.columns), mysql_table, csv_file, csv_file_size, csv_file_hash)
+        
+        # Create a dataframe for the log message.
+        log_df = pd.read_csv(StringIO(log_str), header=None, index_col=False)
+        log_df.columns = ['timestamp_utc', 'user_name', 'host_name', 'num_rows', 
+            'num_cols', 'table_name', 'file_name', 'size_bytes', 'sha1_hash']
+        
+        # Convert the timestamp column to the datetime data type.
+        log_df.timestamp_utc = pd.to_datetime(
+            log_df.timestamp_utc, yearfirst=True, utc=True)
+        
+        # Send the log message dataframe to the database.
+        log_df.to_sql(name=log_table, con=db_handle, if_exists = 'append', 
+            index=False, dtype={'timestamp_utc':DateTime})
+        
+        # Write the log message to the log file.
+        logging.info("to " + log_table + ": " + log_str)
 
 def commit_changes(repo):
     """Track changes to transferred data files in local git repository."""
