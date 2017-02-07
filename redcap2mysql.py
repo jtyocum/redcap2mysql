@@ -335,6 +335,15 @@ send_to_db(os.path.join(data_path, 'rcevent.csv'), 'event', 'rcevent', 'rcxfer')
 # Send users
 send_to_db(os.path.join(data_path, 'rcuser.csv'), 'user', 'rcuser', 'rcxfer')
 
+# Send arms
+send_to_db(os.path.join(data_path, 'rcarm.csv'), 'arm', 'rcarm', 'rcxfer')
+
+# Send Form Event Mappings (fems)
+send_to_db(os.path.join(data_path, 'rcfem.csv'), 'formEventMapping', 'rcfem', 'rcxfer')
+
+# Send instruments
+send_to_db(os.path.join(data_path, 'rcinst.csv'), 'instrument', 'rcinst', 'rcxfer')
+
 # Send records
 send_to_db(os.path.join(data_path, 'rcform.csv'), 'record', 'rcform', 'rcxfer')
 
