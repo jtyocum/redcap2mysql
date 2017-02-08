@@ -167,8 +167,9 @@ def get_data(csv_file, redcap_key, redcap_url, content):
         c = pycurl.Curl()
         c.setopt(c.URL, redcap_url)
         c.setopt(c.FOLLOWLOCATION, True)
-        post_data = {'token': redcap_key, 'content': content,
-                'type': 'flat', 'format': 'csv', 'exportSurveyFields': 'True'}
+        post_data = {'token': redcap_key, 'content': content, 
+                     'rawOrLabel': 'raw', 'type': 'flat', 'format': 'csv', 
+                     'exportSurveyFields': 'True'}
         postfields = urlencode(post_data)
         c.setopt(c.POSTFIELDS, postfields)
         c.setopt(c.WRITEDATA, f)
@@ -339,7 +340,8 @@ send_to_db(os.path.join(data_path, 'rcuser.csv'), 'user', 'rcuser', 'rcxfer')
 send_to_db(os.path.join(data_path, 'rcarm.csv'), 'arm', 'rcarm', 'rcxfer')
 
 # Send Form Event Mappings (fems)
-send_to_db(os.path.join(data_path, 'rcfem.csv'), 'formEventMapping', 'rcfem', 'rcxfer')
+# ERROR: You cannot export form/event mappings for classic projects
+#send_to_db(os.path.join(data_path, 'rcfem.csv'), 'formEventMapping', 'rcfem', 'rcxfer')
 
 # Send instruments
 send_to_db(os.path.join(data_path, 'rcinst.csv'), 'instrument', 'rcinst', 'rcxfer')
