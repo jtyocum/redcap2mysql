@@ -184,10 +184,10 @@ def get_data(csv_file, redcap_key, redcap_url, content):
             logging.warning(message)
             exit(2)
 
-def get_prev_hash(mysql_table, db_handle=db):
+def get_prev_hash(project, mysql_table, db_handle=db):
     """Get the sha1 hash of the previously uploaded data for a table."""    
-    # See of the database contains the rcxfer (REDCap transfer log) table.
-    rs = sql.execute('SHOW TABLES LIKE "rcxfer";', db_handle)
+    # See if the database contains the rcxfer (REDCap transfer log) table.
+    rs = sql.execute('SHOW TABLES LIKE "' + project + '_rcxfer";', db_handle)
     row0 = rs.fetchone()
     res = ''
     if (row0 is not None) and (len(row0) != 0):
@@ -195,8 +195,8 @@ def get_prev_hash(mysql_table, db_handle=db):
     
     # If the table is found, find the most recent hash for the table data.
     prev_hash = ''
-    if res == 'rcxfer':
-        sql_cmd = 'SELECT sha1_hash FROM rcxfer ' + \
+    if res == project + '_rcxfer':
+        sql_cmd = 'SELECT sha1_hash FROM %s_rcxfer ' % project + \
                   'WHERE table_name = "%s" ' % mysql_table + \
                   'ORDER BY timestamp_utc DESC ' + \
                   'LIMIT 1;'
@@ -252,6 +252,8 @@ def send_to_db(project, data_path, csv_file, dataset, mysql_table, log_table,
     csv_file = os.path.join(data_path, csv_file)
     
     # Get the data from REDCap.
+    if project != '':
+        redcap_key = config.get('redcap', project + '_' + 'redcap_key', 0)
     get_data(csv_file, redcap_key, redcap_url, dataset)
     data = parse_csv(csv_file)
     
@@ -264,7 +266,7 @@ def send_to_db(project, data_path, csv_file, dataset, mysql_table, log_table,
     # the old rcmeta and rcform tables with a datestamped name suffix
     # and create new tables for 'metadata' for 'record' data.
     prev_hash_same = False
-    prev_hash = get_prev_hash(mysql_table)
+    prev_hash = get_prev_hash(project, mysql_table)
     if csv_file_hash == prev_hash:
         prev_hash_same = True
     else:
@@ -327,40 +329,47 @@ def commit_changes(repo, project = ''):
     except git.exc.GitCommandError, err:
         logging.info([traceback.format_exc(limit=1).splitlines()[-1]])
 
+def send_data(project, data_path):
+    """Get REDCap data and send to MySQL."""
+    
+    # Send metadata
+    send_to_db(project, data_path, 'rcmeta.csv', 'metadata', 'rcmeta', 'rcxfer')
+
+    # Send events
+    send_to_db(project, data_path, 'rcevent.csv', 'event', 'rcevent', 'rcxfer')
+
+    # Send users
+    send_to_db(project, data_path, 'rcuser.csv', 'user', 'rcuser', 'rcxfer')
+
+    # Send arms
+    send_to_db(project, data_path, 'rcarm.csv', 'arm', 'rcarm', 'rcxfer')
+
+    # Send Form Event Mappings (fems)
+    # ERROR: You cannot export form/event mappings for classic projects
+    #send_to_db(project, data_path, 'rcfem.csv', 'formEventMapping', 'rcfem', 'rcxfer')
+
+    # Send instruments
+    send_to_db(project, data_path, 'rcinst.csv', 'instrument', 'rcinst', 'rcxfer')
+
+    # Send records
+    send_to_db(project, data_path, 'rcform.csv', 'record', 'rcform', 'rcxfer')
+
+    # Commit changes to local repo
+    commit_changes(repo, project)
+
 # --------------
 # Transfer data
 # --------------
 
-# Get REDCap data and send to MySQL
-
-# Get the project name from the script argument, if present.
-project = ''
+# Get the project name(s) from the script argument(s), if present.
 if len(sys.argv) > 0:
     pattern = re.compile('^[A-Za-z0-9_-]+$')
-    if pattern.match(sys.argv[1]):
-        project = sys.argv[1]
-
-# Send metadata
-send_to_db(project, data_path, 'rcmeta.csv', 'metadata', 'rcmeta', 'rcxfer')
-
-# Send events
-send_to_db(project, data_path, 'rcevent.csv', 'event', 'rcevent', 'rcxfer')
-
-# Send users
-send_to_db(project, data_path, 'rcuser.csv', 'user', 'rcuser', 'rcxfer')
-
-# Send arms
-send_to_db(project, data_path, 'rcarm.csv', 'arm', 'rcarm', 'rcxfer')
-
-# Send Form Event Mappings (fems)
-# ERROR: You cannot export form/event mappings for classic projects
-#send_to_db(project, data_path, 'rcfem.csv', 'formEventMapping', 'rcfem', 'rcxfer')
-
-# Send instruments
-send_to_db(project, data_path, 'rcinst.csv', 'instrument', 'rcinst', 'rcxfer')
-
-# Send records
-send_to_db(project, data_path, 'rcform.csv', 'record', 'rcform', 'rcxfer')
-
-# Commit changes to local repo
-commit_changes(repo, project)
+    for x in sys.argv[1:]:
+        if pattern.match(sys.argv[1]):
+            project = sys.argv[1]
+            send_data(project, data_path)
+        else:
+            print("Invalid project name: " + project)
+            exit(5)
+else:
+    send_data('', data_path)
