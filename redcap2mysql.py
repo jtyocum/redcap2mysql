@@ -29,6 +29,7 @@ from mysql.connector.constants import ClientFlag
 from sqlalchemy import *
 from sys import exit
 import os
+import sys
 import mylogin
 from pandas.io import sql
 import getpass
@@ -236,14 +237,20 @@ def hash_file(file_name):
             buf = afile.read(BLOCKSIZE)
     return(hasher.hexdigest())
 
-def send_to_db(csv_file, dataset, mysql_table, log_table, 
+def send_to_db(project, data_path, csv_file, dataset, mysql_table, log_table, 
                redcap_key = redcap_key, redcap_url = redcap_url, 
                db_handle = db, mysql_user = mysql_user,
                redcap_event_name_maxlen = redcap_event_name_maxlen):
     """Send data from REDCap to a MySQL (or MariaDB) database.""" 
-    #
-    # Todo: Process one form at a time instead of all at once. See above.
-    #       Replace database table if it already exists. Todo: See below.
+    
+    # Prepend project name to filename, dataset, and tablename variables.
+    csv_file = project + '_' + csv_file
+    dataset = project + '_' + dataset
+    mysql_table = project + '_' + mysql_table
+    log_table = project + '_' +  log_table
+    
+    # Prepend file_path to csv_file.
+    csv_file = os.path.join(data_path, csv_file)
     
     # Get the data from REDCap.
     get_data(csv_file, redcap_key, redcap_url, dataset)
@@ -312,12 +319,12 @@ def send_to_db(csv_file, dataset, mysql_table, log_table,
         # Write the log message to the log file.
         logging.info("to " + log_table + ": " + log_str)
 
-def commit_changes(repo):
+def commit_changes(repo, project = ''):
     """Track changes to transferred data files in local git repository."""
     cmd = repo.git
     cmd.add(all=True)
     try:
-        cmd.commit(m="redcap2mysql.py data sync")
+        cmd.commit(m="redcap2mysql.py data sync for project: " + project)
     except git.exc.GitCommandError, err:
         logging.info([traceback.format_exc(limit=1).splitlines()[-1]])
 
@@ -327,27 +334,34 @@ def commit_changes(repo):
 
 # Get REDCap data and send to MySQL
 
+# Get the project name from the script argument, if present.
+project = ''
+if len(sys.argv) > 0:
+    pattern = re.compile('^[A-Za-z0-9_-]+$')
+    if pattern.match(sys.argv[1]):
+        project = sys.argv[1]
+
 # Send metadata
-send_to_db(os.path.join(data_path, 'rcmeta.csv'), 'metadata', 'rcmeta', 'rcxfer')
+send_to_db(project, data_path, 'rcmeta.csv', 'metadata', 'rcmeta', 'rcxfer')
 
 # Send events
-send_to_db(os.path.join(data_path, 'rcevent.csv'), 'event', 'rcevent', 'rcxfer')
+send_to_db(project, data_path, 'rcevent.csv', 'event', 'rcevent', 'rcxfer')
 
 # Send users
-send_to_db(os.path.join(data_path, 'rcuser.csv'), 'user', 'rcuser', 'rcxfer')
+send_to_db(project, data_path, 'rcuser.csv', 'user', 'rcuser', 'rcxfer')
 
 # Send arms
-send_to_db(os.path.join(data_path, 'rcarm.csv'), 'arm', 'rcarm', 'rcxfer')
+send_to_db(project, data_path, 'rcarm.csv', 'arm', 'rcarm', 'rcxfer')
 
 # Send Form Event Mappings (fems)
 # ERROR: You cannot export form/event mappings for classic projects
-#send_to_db(os.path.join(data_path, 'rcfem.csv'), 'formEventMapping', 'rcfem', 'rcxfer')
+#send_to_db(project, data_path, 'rcfem.csv', 'formEventMapping', 'rcfem', 'rcxfer')
 
 # Send instruments
-send_to_db(os.path.join(data_path, 'rcinst.csv'), 'instrument', 'rcinst', 'rcxfer')
+send_to_db(project, data_path, 'rcinst.csv', 'instrument', 'rcinst', 'rcxfer')
 
 # Send records
-send_to_db(os.path.join(data_path, 'rcform.csv'), 'record', 'rcform', 'rcxfer')
+send_to_db(project, data_path, 'rcform.csv', 'record', 'rcform', 'rcxfer')
 
 # Commit changes to local repo
-commit_changes(repo)
+commit_changes(repo, project)
