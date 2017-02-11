@@ -8,7 +8,9 @@
 
 [redcap]
 redcap_url = https://localhost/API/
-redcap_key = 0123456789ABCDEF
+redcap_key = 0123456789ABCDEF0123456789ABCDEF
+; Or, use the project name as a prefix if you have multiple projects.
+testproject_redcap_key = FACADECAFEBABEDEADBEEFDECADEDEFACED
 #redcap_event_name_maxlen = 100
 
 [mysql]
