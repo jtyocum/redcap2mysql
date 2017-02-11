@@ -245,7 +245,6 @@ def send_to_db(project, data_path, csv_file, dataset, mysql_table, log_table,
     
     # Prepend project name to filename, dataset, and tablename variables.
     csv_file = project + '_' + csv_file
-    dataset = project + '_' + dataset
     mysql_table = project + '_' + mysql_table
     log_table = project + '_' +  log_table
     
