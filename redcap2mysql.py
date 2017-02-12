@@ -10,6 +10,10 @@
 #
 # Requires Python 2.7, a config file, git, mysql, and the imports listed below.
 #
+# Usage: python redcap2mysql.py [Project_1] [Project_1] [...]
+#
+# ... Where PROJECT contains letters, numbers, and underscore characters.
+#
 # This script can be automated with a utility such as cron. Here is an example
 # crontab entry whcu runs the script every day at 8:55 PM:
 #
@@ -18,6 +22,7 @@
 # Todo:
 #
 # 1. Add input data validation for all configuration parameters.
+# 2. Try to conform to Python coding styles, conventions, and best practices.
 
 # Use Python 3 style print statements.
 from __future__ import print_function
@@ -364,8 +369,9 @@ def send_data(data_path, project = ''):
 # --------------
 
 # Get the project name(s) from the script argument(s), if present.
+# The project must only contain letters, numbers, and underscore characters.
 if len(sys.argv) > 1:
-    pattern = re.compile('^[A-Za-z0-9_-]+$')
+    pattern = re.compile('^[A-Za-z0-9_]+$')
     for x in sys.argv[1:]:
         if pattern.match(sys.argv[1]):
             project = sys.argv[1]

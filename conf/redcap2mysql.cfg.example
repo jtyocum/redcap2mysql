@@ -10,6 +10,7 @@
 redcap_url = https://localhost/API/
 redcap_key = 0123456789ABCDEF0123456789ABCDEF
 ; Or, use the project name as a prefix if you have multiple projects.
+; The project must only contain letters, numbers, and underscore characters.
 testproject_redcap_key = FACADECAFEBABEDEADBEEFDECADEDEFACED
 #redcap_event_name_maxlen = 100
 
