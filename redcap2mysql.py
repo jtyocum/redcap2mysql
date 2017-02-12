@@ -184,10 +184,11 @@ def get_data(csv_file, redcap_key, redcap_url, content):
             logging.warning(message)
             exit(2)
 
-def get_prev_hash(project, mysql_table, db_handle=db):
+def get_prev_hash(project, mysql_table, log_table, db_handle=db):
     """Get the sha1 hash of the previously uploaded data for a table."""    
-    # See if the database contains the rcxfer (REDCap transfer log) table.
-    rs = sql.execute('SHOW TABLES LIKE "' + project + '_rcxfer";', db_handle)
+    
+    # See if the database contains the log_table (REDCap transfer log) table.
+    rs = sql.execute('SHOW TABLES LIKE "' + log_table + '";', db_handle)
     row0 = rs.fetchone()
     res = ''
     if (row0 is not None) and (len(row0) != 0):
@@ -195,8 +196,8 @@ def get_prev_hash(project, mysql_table, db_handle=db):
     
     # If the table is found, find the most recent hash for the table data.
     prev_hash = ''
-    if res == project + '_rcxfer':
-        sql_cmd = 'SELECT sha1_hash FROM %s_rcxfer ' % project + \
+    if res == log_table:
+        sql_cmd = 'SELECT sha1_hash FROM %s ' % log_table + \
                   'WHERE table_name = "%s" ' % mysql_table + \
                   'ORDER BY timestamp_utc DESC ' + \
                   'LIMIT 1;'
@@ -237,16 +238,17 @@ def hash_file(file_name):
             buf = afile.read(BLOCKSIZE)
     return(hasher.hexdigest())
 
-def send_to_db(project, data_path, csv_file, dataset, mysql_table, log_table, 
+def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,     
                redcap_key = redcap_key, redcap_url = redcap_url, 
                db_handle = db, mysql_user = mysql_user,
                redcap_event_name_maxlen = redcap_event_name_maxlen):
     """Send data from REDCap to a MySQL (or MariaDB) database.""" 
     
-    # Prepend project name to filename, dataset, and tablename variables.
-    csv_file = project + '_' + csv_file
-    mysql_table = project + '_' + mysql_table
-    log_table = project + '_' +  log_table
+    if project != '':
+        # Prepend project name.
+        csv_file = project + '_' + csv_file
+        mysql_table = project + '_' + mysql_table
+        log_table = project + '_' +  log_table
     
     # Prepend file_path to csv_file.
     csv_file = os.path.join(data_path, csv_file)
@@ -266,7 +268,7 @@ def send_to_db(project, data_path, csv_file, dataset, mysql_table, log_table,
     # the old rcmeta and rcform tables with a datestamped name suffix
     # and create new tables for 'metadata' for 'record' data.
     prev_hash_same = False
-    prev_hash = get_prev_hash(project, mysql_table)
+    prev_hash = get_prev_hash(project, mysql_table, log_table)
     if csv_file_hash == prev_hash:
         prev_hash_same = True
     else:
@@ -274,9 +276,9 @@ def send_to_db(project, data_path, csv_file, dataset, mysql_table, log_table,
             timestamp = '{:%Y%m%dT%H%M%SZ}'.format(
                 datetime.utcnow().replace(tzinfo=pytz.utc))
             sql.execute('RENAME TABLE %s TO %s;' % \
-                ('rcform', 'rcform_' + timestamp), db_handle)
+                (rcform, rcform + '_' + timestamp), db_handle)
             sql.execute('RENAME TABLE %s TO %s;' % \
-                ('rcmeta', 'rcmeta_' + timestamp), db_handle)        
+                (mysql_table, mysql_table + '_' + timestamp), db_handle)        
     
     # If the data has changed since the last sync, write to database and log.
     if prev_hash_same == False:
@@ -298,7 +300,7 @@ def send_to_db(project, data_path, csv_file, dataset, mysql_table, log_table,
         # Create a ISO 8601 timestamp for logging. Use UTC for timezone consistency.
         timestamp = '{:%Y-%m-%dT%H:%M:%SZ}'.format(
             datetime.utcnow().replace(tzinfo=pytz.utc))
-            
+        
         # Create the log message string as a comma-separated list of values. 
         log_str = '{0},{1},{2},{3},{4},{5},{6},{7},{8}'.format(
             timestamp, mysql_user, socket.gethostname(), len(data.index), 
@@ -325,34 +327,34 @@ def commit_changes(repo, project = ''):
     cmd = repo.git
     cmd.add(all=True)
     try:
-        cmd.commit(m="redcap2mysql.py data sync for project: " + project)
+        cmd.commit(m="redcap2mysql.py data sync for project " + project)
     except git.exc.GitCommandError, err:
         logging.info([traceback.format_exc(limit=1).splitlines()[-1]])
 
-def send_data(project, data_path):
+def send_data(data_path, project = ''):
     """Get REDCap data and send to MySQL."""
     
     # Send metadata
-    send_to_db(project, data_path, 'rcmeta.csv', 'metadata', 'rcmeta', 'rcxfer')
+    send_to_db(data_path, project, 'rcmeta.csv', 'metadata', 'rcmeta', 'rcxfer', 'rcform')
 
     # Send events
-    send_to_db(project, data_path, 'rcevent.csv', 'event', 'rcevent', 'rcxfer')
+    send_to_db(data_path, project, 'rcevent.csv', 'event', 'rcevent', 'rcxfer')
 
     # Send users
-    send_to_db(project, data_path, 'rcuser.csv', 'user', 'rcuser', 'rcxfer')
+    send_to_db(data_path, project, 'rcuser.csv', 'user', 'rcuser', 'rcxfer')
 
     # Send arms
-    send_to_db(project, data_path, 'rcarm.csv', 'arm', 'rcarm', 'rcxfer')
+    send_to_db(data_path, project, 'rcarm.csv', 'arm', 'rcarm', 'rcxfer')
 
     # Send Form Event Mappings (fems)
     # ERROR: You cannot export form/event mappings for classic projects
     #send_to_db(project, data_path, 'rcfem.csv', 'formEventMapping', 'rcfem', 'rcxfer')
 
     # Send instruments
-    send_to_db(project, data_path, 'rcinst.csv', 'instrument', 'rcinst', 'rcxfer')
+    send_to_db(data_path, project, 'rcinst.csv', 'instrument', 'rcinst', 'rcxfer')
 
     # Send records
-    send_to_db(project, data_path, 'rcform.csv', 'record', 'rcform', 'rcxfer')
+    send_to_db(data_path, project, 'rcform.csv', 'record', 'rcform', 'rcxfer')
 
     # Commit changes to local repo
     commit_changes(repo, project)
@@ -362,14 +364,14 @@ def send_data(project, data_path):
 # --------------
 
 # Get the project name(s) from the script argument(s), if present.
-if len(sys.argv) > 0:
+if len(sys.argv) > 1:
     pattern = re.compile('^[A-Za-z0-9_-]+$')
     for x in sys.argv[1:]:
         if pattern.match(sys.argv[1]):
             project = sys.argv[1]
-            send_data(project, data_path)
+            send_data(data_path, project)
         else:
             print("Invalid project name: " + project)
             exit(5)
 else:
-    send_data('', data_path)
+    send_data(data_path)
