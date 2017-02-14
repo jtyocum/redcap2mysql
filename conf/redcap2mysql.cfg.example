@@ -18,6 +18,10 @@ testproject_redcap_key = FACADECAFEBABEDEADBEEFDECADEDEFACED
 mysql_host = localhost
 mysql_db = db
 
+; This is the Data Source Name (DSN) to use with ODBC connections.
+; Leave it commented out unless you are using this method.
+#mysql_dsn = myDSN
+
 ; This is the mysql login-path as set by mysql_config_editor.
 ; This utility allows for storing an encrypted password.
 ; Leave it commented out unless you are using this method.
