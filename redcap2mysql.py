@@ -5,19 +5,47 @@
 #
 # This is just a *rough* prototype in the *early* stages of development.
 #
+# It has been tested on Windows Server 2008 R2 with ActivePython 2.7 (64-bit).
+# It has been tested on Ubuntu 16 with the vendor-supplied Python 2.7 (64-bit).
+#
 # You need to have a REDCap project and a MySQL database. MySQL
 # access will be over SSL, so you need an SSL key and certs.
 #
-# Requires Python 2.7, a config file, git, mysql, and the imports listed below.
-# It has been tested on Ubuntu 16. It has not been tested on Windows or macOS.
+# Requires Python 2.7, a config file, git, mysql, a DSN, and these packages:
 #
-# Usage: python redcap2mysql.py [Project] [...]
+# python -m pip install pandas
+# python -m pip install sqlalchemy
+# python -m pip install ConfigParser
+# python -m pip install pycurl
+# python -m pip install logging
+# python -m pip install pytz
+# python -m pip install datetime
+# python -m pip install gitpython
+# python -m pip install --user -e git+https://github.com/alorenzo175/mylogin.git#egg=mylogin
+# python -m pip install pyodbc
+# python -m pip install certifi
+#
+# For use with ODBC database connections, you will also want to install pymysql:
+#
+# python -m pip install pymysql
+#
+# Or, alternatively, for use with the MySQL driver written in Python:
+#
+# python -m pip install mysql.connector
+# python -m pip install mylogin
+#
+# On Windows, you will also need Microsoft Visual C++ Compiler for Python 2.7.
+#    https://www.microsoft.com/en-us/download/details.aspx?id=44266
+# You will also need the MySQL ODBC Connector (32-bit or 64-bit to match Python).
+#    https://dev.mysql.com/downloads/connector/odbc/
+#
+# Usage: python redcap2mysql_odbc.py [Project] [...]
 #
 # ... Where Project contains letters, numbers, and underscore characters. More
 #     than one project may be listed, with spaces separating the project names.
 #
 # This script can be automated with a utility such as cron. Here is an example
-# crontab entry whcu runs the script every day at 8:55 PM:
+# crontab entry which runs the script every day at 8:55 PM:
 #
 # 55 20 * * * (cd /path/to/folder; /usr/bin/python ./redcap2mysql.py)
 #
@@ -25,19 +53,19 @@
 #
 # 1. Add input data validation for all configuration parameters.
 # 2. Try to conform to Python coding styles, conventions, and best practices.
+# ---------------------------------------------------------------------------
+
+# --------------------------- SETUP -----------------------------------------
 
 # Use Python 3 style print statements.
 from __future__ import print_function
 
 # Import packages
 import ConfigParser
-import mysql.connector
-from mysql.connector.constants import ClientFlag
 from sqlalchemy import *
 from sys import exit
 import os
 import sys
-import mylogin
 from pandas.io import sql
 import getpass
 import pandas as pd
@@ -54,21 +82,18 @@ import re
 import git
 import traceback
 
-# Module installation hints:
-# pip install --user -e git+https://github.com/alorenzo175/mylogin.git#egg=mylogin
-
-# --------------
-# Configuration
-# --------------
+# -----------------------
+# Read configuration file
+# -----------------------
 
 config_file = 'conf/redcap2mysql.cfg'   # See conf/redcap2mysql.cfg.example
-log_level = logging.DEBUG               # Set to logging.DEBUG or logging.INFO
 
 # Configure parameters with defaults. Use a config file for most of these.
 config = ConfigParser.SafeConfigParser(
-    {'data_path': 'data', 'log_file': 'redcap2mysql.log', 
-     'log_timestamp_format': '%Y-%m-%d %H:%M:%S %Z', 'mysql_host': 'localhost', 
-     'mysql_db': 'db', 'mysql_path': '', 'mysql_user': '', 'mysql_pwd': '',
+    {'data_path': 'data', 'log_file': 'redcap2mysql.log',
+     'log_timestamp_format': '%Y-%m-%d %H:%M:%S %Z', 
+     'mysql_dsn': '', 'mysql_pwd': '', 'mysql_host': '', 
+     'mysql_port': '3306', 'mysql_conn_type': 'pyodbc', 'mysql_user': '', 
      'redcap_url': 'https://localhost/API/', 'redcap_key': '0123456789ABCDEF',
      'redcap_event_name_maxlen': '100'})
 
@@ -78,24 +103,34 @@ else:
     print("Can't find config file: " + config_file)
     exit(1)
 
+# --------------------------
+# Parse configuration object
+# --------------------------
+
 data_path = config.get('global', 'data_path', 0)
 log_timestamp_format = config.get('global', 'log_timestamp_format', 0)
 log_file = config.get('global', 'log_file', 0)
 mysql_host = config.get('mysql', 'mysql_host', 0)
 mysql_db = config.get('mysql', 'mysql_db', 0)
-mysql_path = config.get('mysql', 'mysql_path', 0)
 mysql_user = config.get('mysql', 'mysql_user', 0)
 redcap_url = config.get('redcap', 'redcap_url', 0)
 redcap_key = config.get('redcap', 'redcap_key', 0)
 redcap_event_name_maxlen = int(
     config.get('redcap', 'redcap_event_name_maxlen', 0))
-ssl_ca = config.get('mysql-ssl', 'ssl_ca', 0)
-ssl_cert = config.get('mysql-ssl', 'ssl_cert', 0)
-ssl_key = config.get('mysql-ssl', 'ssl_key', 0)
+
+# -----------------
+# Configure logging
+# -----------------
+
+log_level = logging.INFO               # Set to logging.DEBUG or logging.INFO
 
 # Set log level and timestamp format
-logging.basicConfig(filename=log_file, level=logging.DEBUG, 
+logging.basicConfig(filename=log_file, level=logging.DEBUG,
     format='%(asctime)s %(message)s', datefmt=log_timestamp_format)
+
+# ------------------------
+# Configure local git repo
+# ------------------------
 
 # Create a local git repository for downloading and archiving data.
 try:
@@ -104,7 +139,11 @@ except:
     message = "Can't create git repo (%s)! Check config file." % (data_path)
     logging.warning(message)
     raise OSError(message)
-        
+
+# ---------------------------
+# Configure local data folder
+# ---------------------------
+
 # Create data folder. Should already exist if git repo created without error.
 if not os.path.exists(data_path):
     try:
@@ -114,61 +153,106 @@ if not os.path.exists(data_path):
         logging.warning(message)
         raise OSError(message)
 
+# -------------------------
+# Configure MySQL user name
+# -------------------------
+
 # Get username from the operating system, if it is blank (default).
 if mysql_user == '':
     mysql_user = getpass.getuser()
 
-# -------------------
-# Get MySQL password
-# -------------------
+# ------------------------------------
+# Define database connection functions
+# ------------------------------------
 
-# Three ways to get the password are supported.
-#
-# From least secure to most secure, these are: 
-#
-# 1. Read clear-text password from config file.
-# 2. Read encrypted password created by mysql_config_editor.
-# 3. Read password as entered manually from a console prompt.
+def get_mysql_pwd(config):
+    """Get the MySQL from the config file or via an interactive prompt."""
+    # Two ways to get the password are supported.
+    #
+    # 1. Read clear-text password from config file. (least secure)
+    # 2. Read password as entered manually from a console prompt. (most secure)
 
-# First try the config file. This is the least secure method. Protect the file.
-mysql_pwd = config.get('mysql', 'mysql_pwd', 0)
+    # First try the config file. This is the least secure method. Protect the file.
+    mysql_pwd = config.get('mysql', 'mysql_pwd', 0)
 
-# Try other two methods if config file password is blank or missing.
-if mysql_pwd == '':
-    if mysql_path != '':
-        # Read encrypted password and decrypt it with mylogin module.
-        # While better than clear-text, be careful about securing the pw file.
-        # However, it's probably the best method for unattended use.
-        try:
-            # Get encrypted password. This requires the mylogin module.
-            login = mylogin.get_login_info(mysql_path, host=mysql_host)
-            mysql_pwd = login['passwd']
-        except mylogin.exception.UtilError as err:
-            print("mylogin error: {0}".format(err))
+    # Try other method if config file password is blank or missing.
     if mysql_pwd == '':
         # Prompt for the password. More secure, but won't work unattended.
         mysql_pwd = getpass.getpass()
 
-# Configure SSL settings.
-ssl_args = {
-    'client_flags': [ClientFlag.SSL],
-    'ssl_ca': ssl_ca,
-    'ssl_cert': ssl_cert,
-    'ssl_key': ssl_key,
-}
+    return(mysql_pwd)
 
-# ---------------------------
-# Create database connection
-# ---------------------------
+def get_mysql_conn(config):
+    """Configure the MySQL database connection."""
+    mysql_conn_type = config.get('mysql', 'mysql_conn_type', 0)
+    mysql_user = config.get('mysql', 'mysql_user', 0)
+    mysql_pwd = config.get('mysql', 'mysql_pwd', 0)
+    if mysql_user == '':
+        mysql_user = getpass.getuser()
 
-DB_URI = "mysql+mysqlconnector://{user}:{password}@{host}:{port}/{db}"
-conn = create_engine(
-    DB_URI.format( user=mysql_user, password=mysql_pwd, host=mysql_host, 
-        port='3306', db=mysql_db), connect_args = ssl_args )
+    if mysql_conn_type == 'pyodbc':
+        mysql_pwd = get_mysql_pwd(config)
+        mysql_dsn = config.get('mysql', 'mysql_dsn', 0)
+        
+        # Create database connection.
+        import pyodbc
+        DB_URI = "mysql+pyodbc://{user}:{password}@{dsn}"
+        conn = create_engine(
+            DB_URI.format( user=mysql_user, password=mysql_pwd, dsn=mysql_dsn ))
+        return(conn)
+    else:
+        # Try to read encrypted MySQL password from ~/.mylogin.cnf and mysql_path.
+        mysql_path = config.get('mysql', 'mysql_path', 0)
+        if mysql_pwd == '':
+            if mysql_path != '':
+                # Read encrypted password and decrypt it with mylogin module.
+                # While better than clear-text, be careful about securing the pw file.
+                # However, it's probably the best method for unattended use.
+                try:
+                    # Get encrypted password. This requires the mylogin module.
+                    import mylogin
+                    login = mylogin.get_login_info(mysql_path, host=mysql_host)
+                    mysql_pwd = login['passwd']
+                except mylogin.exception.UtilError as err:
+                    print("mylogin error: {0}".format(err))
+            else:
+                mysql_pwd = get_mysql_pwd(config)
 
-# -----------------
+        # Configure SSL settings.
+        import mysql.connector
+        from mysql.connector.constants import ClientFlag
+        ssl_ca = config.get('mysql-ssl', 'ssl_ca', 0)
+        ssl_cert = config.get('mysql-ssl', 'ssl_cert', 0)
+        ssl_key = config.get('mysql-ssl', 'ssl_key', 0)
+        ssl_args = {
+            'client_flags': [ClientFlag.SSL],
+            'ssl_ca': ssl_ca,
+            'ssl_cert': ssl_cert,
+            'ssl_key': ssl_key,
+        }
+
+        # Create database connection.
+        mysql_host = config.get('mysql', 'mysql_host', 0)
+        mysql_port = config.get('mysql', 'mysql_port', 0)
+        mysql_db = config.get('mysql', 'mysql_db', 0)
+        DB_URI = "mysql+mysqlconnector://{user}:{password}@{host}:{port}/{db}"
+        conn = create_engine(
+            DB_URI.format( user=mysql_user, password=mysql_pwd, host=mysql_host,
+                port=mysql_port, db=mysql_db), connect_args = ssl_args )
+        return(conn)
+
+# -------------------
+# Connect to Database
+# -------------------
+
+# Create a MySQL connection object based on the configured connection type.
+conn = get_mysql_conn(config)
+
+# ------------------------- END SETUP ---------------------------------------
+
+# ----------------
 # Define functions
-# -----------------
+# ----------------
 
 def get_data(csv_file, redcap_key, redcap_url, content):
     """Get REDCap data as a CSV file with an API key, URL and content type."""
@@ -194,15 +278,15 @@ def get_data(csv_file, redcap_key, redcap_url, content):
             exit(2)
 
 def get_prev_hash(project, mysql_table, log_table, conn = conn):
-    """Get the sha1 hash of the previously uploaded data for a table."""    
-    
+    """Get the sha1 hash of the previously uploaded data for a table."""
+
     # See if the database contains the log_table (REDCap transfer log) table.
     rs = sql.execute('SHOW TABLES LIKE "' + log_table + '";', conn)
     row0 = rs.fetchone()
     res = ''
     if (row0 is not None) and (len(row0) != 0):
         res = row0[0]
-    
+
     # If the table is found, find the most recent hash for the table data.
     prev_hash = ''
     if res == log_table:
@@ -214,7 +298,7 @@ def get_prev_hash(project, mysql_table, log_table, conn = conn):
         row0 = rs.fetchone()
         if (row0 is not None) and (len(row0) != 0):
             prev_hash = row0[0]
-    
+
     return(prev_hash)
 
 def parse_csv(csv_file):
@@ -226,13 +310,13 @@ def parse_csv(csv_file):
             message = "Can't parse REDCap data. Check csv file: " + csv_file
             print(message)
             logging.warning(message)
-            exit(3) 
+            exit(3)
     else:
         message = "Can't read csv file: " + csv_file
         print(message)
         logging.warning(message)
         exit(4)
-    
+
     data.insert(0, 'id', range(1, 1 + len(data)))
     return(data)
 
@@ -247,31 +331,31 @@ def hash_file(file_name):
             buf = afile.read(BLOCKSIZE)
     return(hasher.hexdigest())
 
-def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,     
-               redcap_key = redcap_key, redcap_url = redcap_url, 
+def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
+               redcap_key = redcap_key, redcap_url = redcap_url,
                conn = conn, mysql_user = mysql_user,
                redcap_event_name_maxlen = redcap_event_name_maxlen):
-    """Send data from REDCap to a MySQL (or MariaDB) database.""" 
-    
+    """Send data from REDCap to a MySQL (or MariaDB) database."""
+
     if project != '':
         # Prepend project name.
         csv_file = project + '_' + csv_file
         mysql_table = project + '_' + mysql_table
         log_table = project + '_' +  log_table
-    
+
     # Prepend file_path to csv_file.
     csv_file = os.path.join(data_path, csv_file)
-    
+
     # Get the data from REDCap.
     if project != '':
         redcap_key = config.get('redcap', project + '_' + 'redcap_key', 0)
     get_data(csv_file, redcap_key, redcap_url, dataset)
     data = parse_csv(csv_file)
-    
+
     # Calculate the file size and a hash (checksum) for recording in the log.
     csv_file_size = os.path.getsize(csv_file)
     csv_file_hash = hash_file(csv_file)
-    
+
     # If dataset == 'metadata' and csv_file_hash does not match the
     # previous value ("prev_hash", for the more recent update), then save
     # the old rcmeta and rcform tables with a datestamped name suffix
@@ -287,47 +371,47 @@ def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
             rs = sql.execute('RENAME TABLE %s TO %s;' % \
                 (rcform, rcform + '_' + timestamp), conn)
             rs = sql.execute('RENAME TABLE %s TO %s;' % \
-                (mysql_table, mysql_table + '_' + timestamp), conn)        
-    
+                (mysql_table, mysql_table + '_' + timestamp), conn)
+
     # If the data has changed since the last sync, write to database and log.
     if prev_hash_same == False:
         # Set the data type for the redcap_event_name if this column is present.
         data_dtype_dict = {}
         if 'redcap_event_name' in list(data.columns.values):
             data_dtype_dict['redcap_event_name'] = String(redcap_event_name_maxlen)
-        
+
         # Set the data type for variables ending with _timestamp as DateTime
         r = re.compile('.*_timestamp$')
         timestamp_columns = filter(r.match, list(data.columns.values))
         for column in timestamp_columns:
             data_dtype_dict[column] = DateTime
-        
+
         # Send the data to the database.
-        data.to_sql(name = mysql_table, con = conn, if_exists = 'replace', 
+        data.to_sql(name = mysql_table, con = conn, if_exists = 'replace',
             index = False, dtype = data_dtype_dict)
-        
-        # Create a ISO 8601 timestamp for logging. Use UTC for timezone consistency.
+
+        # Create a ISO 8601 timestamp for logging. Use UTC for consistency.
         timestamp = '{:%Y-%m-%dT%H:%M:%SZ}'.format(
             datetime.utcnow().replace(tzinfo=pytz.utc))
-        
-        # Create the log message string as a comma-separated list of values. 
+
+        # Create the log message string as a comma-separated list of values.
         log_str = '{0},{1},{2},{3},{4},{5},{6},{7},{8}'.format(
-            timestamp, mysql_user, socket.gethostname(), len(data.index), 
+            timestamp, mysql_user, socket.gethostname(), len(data.index),
             len(data.columns), mysql_table, csv_file, csv_file_size, csv_file_hash)
-        
+
         # Create a dataframe for the log message.
         log_df = pd.read_csv(StringIO(log_str), header=None, index_col=False)
-        log_df.columns = ['timestamp_utc', 'user_name', 'host_name', 'num_rows', 
+        log_df.columns = ['timestamp_utc', 'user_name', 'host_name', 'num_rows',
             'num_cols', 'table_name', 'file_name', 'size_bytes', 'sha1_hash']
-        
+
         # Convert the timestamp column to the datetime data type.
         log_df.timestamp_utc = pd.to_datetime(
             log_df.timestamp_utc, yearfirst=True, utc=True)
-        
+
         # Send the log message dataframe to the database.
-        log_df.to_sql(name = log_table, con = conn, if_exists = 'append', 
+        log_df.to_sql(name = log_table, con = conn, if_exists = 'append',
             index = False, dtype = {'timestamp_utc':DateTime})
-        
+
         # Write the log message to the log file.
         logging.info("to " + log_table + ": " + log_str)
 
@@ -342,22 +426,21 @@ def commit_changes(repo, project = ''):
 
 def send_data(data_path, project = ''):
     """Get REDCap data and send to MySQL."""
-    
+
     # Send metadata
     send_to_db(data_path, project, 'rcmeta.csv', 'metadata', 'rcmeta', 'rcxfer', 'rcform')
 
     # Send events
-    send_to_db(data_path, project, 'rcevent.csv', 'event', 'rcevent', 'rcxfer')
+    #send_to_db(data_path, project, 'rcevent.csv', 'event', 'rcevent', 'rcxfer')
+
+    # Send arms
+    #send_to_db(data_path, project, 'rcarm.csv', 'arm', 'rcarm', 'rcxfer')
+
+    # Send Form Event Mappings (fems)
+    #send_to_db(data_path, project, 'rcfem.csv', 'formEventMapping', 'rcfem', 'rcxfer')
 
     # Send users
     send_to_db(data_path, project, 'rcuser.csv', 'user', 'rcuser', 'rcxfer')
-
-    # Send arms
-    send_to_db(data_path, project, 'rcarm.csv', 'arm', 'rcarm', 'rcxfer')
-
-    # Send Form Event Mappings (fems)
-    # ERROR: You cannot export form/event mappings for classic projects
-    #send_to_db(project, data_path, 'rcfem.csv', 'formEventMapping', 'rcfem', 'rcxfer')
 
     # Send instruments
     send_to_db(data_path, project, 'rcinst.csv', 'instrument', 'rcinst', 'rcxfer')
