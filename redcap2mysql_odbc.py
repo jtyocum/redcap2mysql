@@ -80,8 +80,8 @@ log_level = logging.DEBUG               # Set to logging.DEBUG or logging.INFO
 # Configure parameters with defaults. Use a config file for most of these.
 config = ConfigParser.SafeConfigParser(
     {'data_path': 'data', 'log_file': 'redcap2mysql.log',
-     'log_timestamp_format': '%Y-%m-%d %H:%M:%S %Z',
-     'mysql_dsn': '', 'mysql_db': 'db', 'mysql_user': '', 'mysql_pwd': '',
+     'log_timestamp_format': '%Y-%m-%d %H:%M:%S %Z', 'mysql_dsn': '', 
+     'mysql_host': 'localhost', 'mysql_user': '', 'mysql_pwd': '',
      'redcap_url': 'https://localhost/API/', 'redcap_key': '0123456789ABCDEF',
      'redcap_event_name_maxlen': '100'})
 
@@ -95,15 +95,12 @@ data_path = config.get('global', 'data_path', 0)
 log_timestamp_format = config.get('global', 'log_timestamp_format', 0)
 log_file = config.get('global', 'log_file', 0)
 mysql_dsn = config.get('mysql', 'mysql_dsn', 0)
-mysql_db = config.get('mysql', 'mysql_db', 0)
+mysql_host = config.get('mysql', 'mysql_host', 0)
 mysql_user = config.get('mysql', 'mysql_user', 0)
 redcap_url = config.get('redcap', 'redcap_url', 0)
 redcap_key = config.get('redcap', 'redcap_key', 0)
 redcap_event_name_maxlen = int(
     config.get('redcap', 'redcap_event_name_maxlen', 0))
-ssl_ca = config.get('mysql-ssl', 'ssl_ca', 0)
-ssl_cert = config.get('mysql-ssl', 'ssl_cert', 0)
-ssl_key = config.get('mysql-ssl', 'ssl_key', 0)
 
 # Set log level and timestamp format
 logging.basicConfig(filename=log_file, level=logging.DEBUG,
@@ -153,8 +150,9 @@ if mysql_pwd == '':
 # Create database connection
 # ---------------------------
 
-conn_str = "mysql+pyodbc://%s:%s@%s" % (mysql_user, mysql_pwd, mysql_dsn)
-conn = create_engine(conn_str)
+DB_URI = "mysql+pyodbc://{user}:{password}@{dsn}"
+conn = create_engine(
+    DB_URI.format( user=mysql_user, password=mysql_pwd, dsn=mysql_dsn ))
 
 # -----------------
 # Define functions
@@ -168,8 +166,8 @@ def get_data(csv_file, redcap_key, redcap_url, content):
         c.setopt(c.URL, redcap_url)
         c.setopt(c.FOLLOWLOCATION, True)
         post_data = {'token': redcap_key, 'content': content, \
-            'rawOrLabel': 'raw', 'type': 'flat', 'format': 'csv', \
-            'exportSurveyFields': 'True'}
+                     'rawOrLabel': 'raw', 'type': 'flat', 'format': 'csv', \
+                     'exportSurveyFields': 'True'}
         postfields = urlencode(post_data)
         c.setopt(c.POSTFIELDS, postfields)
         c.setopt(c.WRITEDATA, f)
@@ -183,7 +181,7 @@ def get_data(csv_file, redcap_key, redcap_url, content):
             logging.warning(message)
             exit(2)
 
-def get_prev_hash(project, mysql_table, log_table, conn=conn):
+def get_prev_hash(project, mysql_table, log_table, conn = conn):
     """Get the sha1 hash of the previously uploaded data for a table."""
 
     # See if the database contains the log_table (REDCap transfer log) table.
@@ -239,7 +237,7 @@ def hash_file(file_name):
 
 def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
                redcap_key = redcap_key, redcap_url = redcap_url,
-               conn=conn, mysql_user = mysql_user,
+               conn = conn, mysql_user = mysql_user,
                redcap_event_name_maxlen = redcap_event_name_maxlen):
     """Send data from REDCap to a MySQL (or MariaDB) database."""
 
@@ -293,8 +291,8 @@ def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
             data_dtype_dict[column] = DateTime
 
         # Send the data to the database.
-        data.to_sql(name=mysql_table, con=conn, if_exists = 'replace',
-            index=False, dtype=data_dtype_dict)
+        data.to_sql(name = mysql_table, con = conn, if_exists = 'replace',
+            index = False, dtype = data_dtype_dict)
 
         # Create a ISO 8601 timestamp for logging. Use UTC for timezone consistency.
         timestamp = '{:%Y-%m-%dT%H:%M:%SZ}'.format(
@@ -315,8 +313,8 @@ def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
             log_df.timestamp_utc, yearfirst=True, utc=True)
 
         # Send the log message dataframe to the database.
-        log_df.to_sql(name=log_table, con=conn, if_exists = 'append',
-            index=False, dtype={'timestamp_utc':DateTime})
+        log_df.to_sql(name = log_table, con = conn, if_exists = 'append',
+            index = False, dtype = {'timestamp_utc':DateTime})
 
         # Write the log message to the log file.
         logging.info("to " + log_table + ": " + log_str)

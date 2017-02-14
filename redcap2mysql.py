@@ -41,6 +41,7 @@ import mylogin
 from pandas.io import sql
 import getpass
 import pandas as pd
+import certifi
 import pycurl
 from urllib import urlencode
 import hashlib
@@ -161,7 +162,7 @@ ssl_args = {
 # ---------------------------
 
 DB_URI = "mysql+mysqlconnector://{user}:{password}@{host}:{port}/{db}"
-db = create_engine(
+conn = create_engine(
     DB_URI.format( user=mysql_user, password=mysql_pwd, host=mysql_host, 
         port='3306', db=mysql_db), connect_args = ssl_args )
 
@@ -173,10 +174,11 @@ def get_data(csv_file, redcap_key, redcap_url, content):
     """Get REDCap data as a CSV file with an API key, URL and content type."""
     with open(csv_file, 'wb') as f:
         c = pycurl.Curl()
+        c.setopt(pycurl.CAINFO, certifi.where())
         c.setopt(c.URL, redcap_url)
         c.setopt(c.FOLLOWLOCATION, True)
-        post_data = {'token': redcap_key, 'content': content, 
-                     'rawOrLabel': 'raw', 'type': 'flat', 'format': 'csv', 
+        post_data = {'token': redcap_key, 'content': content, \
+                     'rawOrLabel': 'raw', 'type': 'flat', 'format': 'csv', \
                      'exportSurveyFields': 'True'}
         postfields = urlencode(post_data)
         c.setopt(c.POSTFIELDS, postfields)
@@ -191,11 +193,11 @@ def get_data(csv_file, redcap_key, redcap_url, content):
             logging.warning(message)
             exit(2)
 
-def get_prev_hash(project, mysql_table, log_table, db_handle=db):
+def get_prev_hash(project, mysql_table, log_table, conn = conn):
     """Get the sha1 hash of the previously uploaded data for a table."""    
     
     # See if the database contains the log_table (REDCap transfer log) table.
-    rs = sql.execute('SHOW TABLES LIKE "' + log_table + '";', db_handle)
+    rs = sql.execute('SHOW TABLES LIKE "' + log_table + '";', conn)
     row0 = rs.fetchone()
     res = ''
     if (row0 is not None) and (len(row0) != 0):
@@ -208,7 +210,7 @@ def get_prev_hash(project, mysql_table, log_table, db_handle=db):
                   'WHERE table_name = "%s" ' % mysql_table + \
                   'ORDER BY timestamp_utc DESC ' + \
                   'LIMIT 1;'
-        rs = sql.execute(sql_cmd, db_handle)
+        rs = sql.execute(sql_cmd, conn)
         row0 = rs.fetchone()
         if (row0 is not None) and (len(row0) != 0):
             prev_hash = row0[0]
@@ -247,7 +249,7 @@ def hash_file(file_name):
 
 def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,     
                redcap_key = redcap_key, redcap_url = redcap_url, 
-               db_handle = db, mysql_user = mysql_user,
+               conn = conn, mysql_user = mysql_user,
                redcap_event_name_maxlen = redcap_event_name_maxlen):
     """Send data from REDCap to a MySQL (or MariaDB) database.""" 
     
@@ -282,10 +284,10 @@ def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
         if prev_hash != '' and dataset == 'metadata':
             timestamp = '{:%Y%m%dT%H%M%SZ}'.format(
                 datetime.utcnow().replace(tzinfo=pytz.utc))
-            sql.execute('RENAME TABLE %s TO %s;' % \
-                (rcform, rcform + '_' + timestamp), db_handle)
-            sql.execute('RENAME TABLE %s TO %s;' % \
-                (mysql_table, mysql_table + '_' + timestamp), db_handle)        
+            rs = sql.execute('RENAME TABLE %s TO %s;' % \
+                (rcform, rcform + '_' + timestamp), conn)
+            rs = sql.execute('RENAME TABLE %s TO %s;' % \
+                (mysql_table, mysql_table + '_' + timestamp), conn)        
     
     # If the data has changed since the last sync, write to database and log.
     if prev_hash_same == False:
@@ -301,8 +303,8 @@ def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
             data_dtype_dict[column] = DateTime
         
         # Send the data to the database.
-        data.to_sql(name=mysql_table, con=db_handle, if_exists = 'replace', 
-            index=False, dtype=data_dtype_dict)
+        data.to_sql(name = mysql_table, con = conn, if_exists = 'replace', 
+            index = False, dtype = data_dtype_dict)
         
         # Create a ISO 8601 timestamp for logging. Use UTC for timezone consistency.
         timestamp = '{:%Y-%m-%dT%H:%M:%SZ}'.format(
@@ -323,8 +325,8 @@ def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
             log_df.timestamp_utc, yearfirst=True, utc=True)
         
         # Send the log message dataframe to the database.
-        log_df.to_sql(name=log_table, con=db_handle, if_exists = 'append', 
-            index=False, dtype={'timestamp_utc':DateTime})
+        log_df.to_sql(name = log_table, con = conn, if_exists = 'append', 
+            index = False, dtype = {'timestamp_utc':DateTime})
         
         # Write the log message to the log file.
         logging.info("to " + log_table + ": " + log_str)
