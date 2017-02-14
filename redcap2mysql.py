@@ -9,10 +9,12 @@
 # access will be over SSL, so you need an SSL key and certs.
 #
 # Requires Python 2.7, a config file, git, mysql, and the imports listed below.
+# It has been tested on Ubuntu 16. It has not been tested on Windows or macOS.
 #
-# Usage: python redcap2mysql.py [Project_1] [Project_1] [...]
+# Usage: python redcap2mysql.py [Project] [...]
 #
-# ... Where PROJECT contains letters, numbers, and underscore characters.
+# ... Where Project contains letters, numbers, and underscore characters. More
+#     than one project may be listed, with spaces separating the project names.
 #
 # This script can be automated with a utility such as cron. Here is an example
 # crontab entry whcu runs the script every day at 8:55 PM:
