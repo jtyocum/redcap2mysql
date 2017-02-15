@@ -18,21 +18,18 @@
 # python -m pip install ConfigParser
 # python -m pip install pycurl
 # python -m pip install logging
-# python -m pip install pytz
 # python -m pip install datetime
 # python -m pip install gitpython
 # python -m pip install --user -e git+https://github.com/alorenzo175/mylogin.git#egg=mylogin
-# python -m pip install pyodbc
 # python -m pip install certifi
 #
-# For use with ODBC database connections, you will also want to install pymysql:
+# For use with ODBC database connections, you will also want to install pyodbc:
 #
-# python -m pip install pymysql
+# python -m pip install pyodbc
 #
-# Or, alternatively, for use with the MySQL driver written in Python:
+# Or, alternatively, for use with the MySQL Connector driver written in Python:
 #
-# python -m pip install mysql.connector
-# python -m pip install mylogin
+# python -m pip install mysql-connector
 #
 # On Windows, you will also need Microsoft Visual C++ Compiler for Python 2.7.
 #    https://www.microsoft.com/en-us/download/details.aspx?id=44266
