@@ -6,10 +6,11 @@
 # This is just a *rough* prototype in the *early* stages of development.
 #
 # It has been tested on Windows Server 2008 R2 with ActivePython 2.7 (64-bit).
+# It has been tested on Windows Server 2008 R2 with Anaconda 4.3.0 2.7 (64-bit).
 # It has been tested on Ubuntu 16 with the vendor-supplied Python 2.7 (64-bit).
 #
-# You need to have a REDCap project and a MySQL database. MySQL
-# access will be over SSL, so you need an SSL key and certs.
+# You need to have a REDCap project and a MySQL database. Access to the MySQL
+# database will be over SSL, so you will need to supply SSL key and certs.
 #
 # Requires Python 2.7, a config file, git, mysql, a DSN, and these packages:
 #
