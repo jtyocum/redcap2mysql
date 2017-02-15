@@ -332,7 +332,7 @@ def hash_file(file_name):
     return(hasher.hexdigest())
 
 def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
-               redcap_key = redcap_key, redcap_url = redcap_url,
+               rcform = '', redcap_key = redcap_key, redcap_url = redcap_url,
                conn = conn, mysql_user = mysql_user,
                redcap_event_name_maxlen = redcap_event_name_maxlen):
     """Send data from REDCap to a MySQL (or MariaDB) database."""
@@ -342,6 +342,7 @@ def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
         csv_file = project + '_' + csv_file
         mysql_table = project + '_' + mysql_table
         log_table = project + '_' +  log_table
+        rcform = project + '_' +  rcform
 
     # Prepend file_path to csv_file.
     csv_file = os.path.join(data_path, csv_file)
