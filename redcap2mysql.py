@@ -21,7 +21,7 @@
 # python -m pip install logging
 # python -m pip install datetime
 # python -m pip install gitpython
-# python -m pip install --user -e git+https://github.com/alorenzo175/mylogin.git#egg=mylogin
+# python -m pip install git+https://github.com/alorenzo175/mylogin.git#egg=mylogin
 # python -m pip install certifi
 #
 # For use with ODBC database connections, you will also want to install pyodbc:
@@ -209,10 +209,12 @@ def get_mysql_conn(config):
                 try:
                     # Get encrypted password. This requires the mylogin module.
                     import mylogin
+                    mysql_host = config.get('mysql', 'mysql_host', 0)
                     login = mylogin.get_login_info(mysql_path, host=mysql_host)
                     mysql_pwd = login['passwd']
-                except mylogin.exception.UtilError as err:
-                    print("mylogin error: {0}".format(err))
+                except:
+                    print("Unexpected error:", sys.exc_info()[0])
+                    raise
             else:
                 mysql_pwd = get_mysql_pwd(config)
 
