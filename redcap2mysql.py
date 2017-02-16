@@ -164,7 +164,7 @@ if mysql_user == '':
 # ------------------------------------
 
 def get_mysql_pwd(config):
-    """Get the MySQL from the config file or via an interactive prompt."""
+    """Get the MySQL password from the config file or an interactive prompt."""
     # Two ways to get the password are supported.
     #
     # 1. Read clear-text password from config file. (least secure)
@@ -212,9 +212,8 @@ def get_mysql_conn(config):
                     mysql_host = config.get('mysql', 'mysql_host', 0)
                     login = mylogin.get_login_info(mysql_path, host=mysql_host)
                     mysql_pwd = login['passwd']
-                except:
-                    print("Unexpected error:", sys.exc_info()[0])
-                    raise
+                except mylogin.exception.UtilError as err:
+                    print("mylogin error: {0}".format(err))
             else:
                 mysql_pwd = get_mysql_pwd(config)
 
