@@ -134,8 +134,8 @@ logging.basicConfig(filename=log_file, level=logging.DEBUG,
 try:
     repo = git.Repo.init(data_path)
 except:
-    message = "Can't create git repo (%s)! Check config file." % (data_path)
-    logging.warning(message)
+    message = "Error: Can't create git repo (%s)! Check config!" % (data_path)
+    logging.error(message)
     raise OSError(message)
 
 # ---------------------------
@@ -147,8 +147,8 @@ if not os.path.exists(data_path):
     try:
         os.makedirs(data_path)
     except:
-        message = "Can't create folder (%s)! Check config file." % (data_path)
-        logging.warning(message)
+        message = "Error: Can't create folder (%s)! Check config!" % (data_path)
+        logging.critical(message)
         raise OSError(message)
 
 # -------------------------
@@ -217,19 +217,30 @@ def get_mysql_conn(config):
             else:
                 mysql_pwd = get_mysql_pwd(config)
 
-        # Configure SSL settings.
+        # Import packages.
         import mysql.connector
         from mysql.connector.constants import ClientFlag
+
+        # Get SSL settings (file paths to SSL keys and certs).
         ssl_ca = config.get('mysql-ssl', 'ssl_ca', 0)
         ssl_cert = config.get('mysql-ssl', 'ssl_cert', 0)
         ssl_key = config.get('mysql-ssl', 'ssl_key', 0)
+        
+        # Check for existence of SSL files.
+        for file_path in (ssl_ca, ssl_cert, ssl_key):
+            if not os.path.exists(file_path):
+                message = "Error: Can't find: %s! Check config!" % (file_path)
+                logging.critical(message)
+                raise OSError(message)
+        
+        # Create a dict of SSL settings to pass to create_engine().
         ssl_args = {
             'client_flags': [ClientFlag.SSL],
             'ssl_ca': ssl_ca,
             'ssl_cert': ssl_cert,
             'ssl_key': ssl_key,
         }
-
+        
         # Create database connection.
         mysql_host = config.get('mysql', 'mysql_host', 0)
         mysql_port = config.get('mysql', 'mysql_port', 0)
@@ -271,9 +282,9 @@ def get_data(csv_file, redcap_key, redcap_url, content):
             c.close()
         except pycurl.error, err:
             c.close()
-            message = "Can't fetch data. Check config file: " + config_file
+            message = "Error: Can't fetch data. Check config: " + config_file
             print(message)
-            logging.warning(message)
+            logging.critical(message)
             exit(2)
 
 def get_prev_hash(project, mysql_table, log_table, conn = conn):
@@ -289,8 +300,8 @@ def get_prev_hash(project, mysql_table, log_table, conn = conn):
     # If the table is found, find the most recent hash for the table data.
     prev_hash = ''
     if res == log_table:
-        sql_cmd = 'SELECT sha1_hash FROM %s ' % log_table + \
-                  'WHERE table_name = "%s" ' % mysql_table + \
+        sql_cmd = 'SELECT sha1_hash FROM %s ' % (log_table) + \
+                  'WHERE table_name = "%s" ' % (mysql_table) + \
                   'ORDER BY timestamp_utc DESC ' + \
                   'LIMIT 1;'
         rs = sql.execute(sql_cmd, conn)
@@ -306,14 +317,14 @@ def parse_csv(csv_file):
         try:
             data = pd.read_csv(csv_file, index_col=False)
         except pd.parser.CParserError, err:
-            message = "Can't parse REDCap data. Check csv file: " + csv_file
+            message = "Can't parse REDCap data. Check CSV file: " + csv_file
             print(message)
-            logging.warning(message)
+            logging.critical(message)
             exit(3)
     else:
-        message = "Can't read csv file: " + csv_file
+        message = "Can't read CSV file: " + csv_file
         print(message)
-        logging.warning(message)
+        logging.critical(message)
         exit(4)
 
     data.insert(0, 'id', range(1, 1 + len(data)))
@@ -459,12 +470,13 @@ def send_data(data_path, project = ''):
 # The project must only contain letters, numbers, and underscore characters.
 if len(sys.argv) > 1:
     pattern = re.compile('^[A-Za-z0-9_]+$')
-    for x in sys.argv[1:]:
-        if pattern.match(sys.argv[1]):
-            project = sys.argv[1]
+    for project in sys.argv[1:]:
+        if pattern.match(project):
             send_data(data_path, project)
         else:
-            print("Invalid project name: " + project)
+            message = "Error: Invalid project name: %s" % (project)
+            print(message)
+            logging.critical(message)
             exit(5)
 else:
     send_data(data_path)
