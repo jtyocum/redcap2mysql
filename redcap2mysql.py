@@ -326,7 +326,7 @@ def parse_csv(csv_file):
                 logging.critical(message)
                 exit(3)
         else:
-            message = "CSV file contains header but no data: " + csv_file
+            message = "CSV file does not contain data: " + csv_file
             print(message)
             logging.warning(message)
             return(None)
