@@ -314,21 +314,28 @@ def get_prev_hash(project, mysql_table, log_table, conn = conn):
 def parse_csv(csv_file):
     """Parse a CSV file with Pandas, with basic checks and error handling."""
     if os.path.isfile(csv_file) == True:
-        try:
-            data = pd.read_csv(csv_file, index_col=False)
-        except pd.parser.CParserError, err:
-            message = "Can't parse REDCap data. Check CSV file: " + csv_file
+        num_lines = sum(1 for line in open(csv_file))
+        if num_lines > 1:
+            try:
+                data = pd.read_csv(csv_file, index_col=False)
+                data.insert(0, 'id', range(1, 1 + len(data)))
+                return(data)
+            except pd.parser.CParserError, err:
+                message = "Can't parse REDCap data. Check CSV file: " + csv_file
+                print(message)
+                logging.critical(message)
+                exit(3)
+        else:
+            message = "CSV file contains header but no data: " + csv_file
             print(message)
-            logging.critical(message)
-            exit(3)
+            logging.warning(message)
+            return(None)
     else:
         message = "Can't read CSV file: " + csv_file
         print(message)
         logging.critical(message)
         exit(4)
 
-    data.insert(0, 'id', range(1, 1 + len(data)))
-    return(data)
 
 def hash_file(file_name):
     """Create a hash of a file."""
@@ -362,6 +369,8 @@ def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
         redcap_key = config.get('redcap', project + '_' + 'redcap_key', 0)
     get_data(csv_file, redcap_key, redcap_url, dataset)
     data = parse_csv(csv_file)
+    if data is None:
+        return(None)
 
     # Calculate the file size and a hash (checksum) for recording in the log.
     csv_file_size = os.path.getsize(csv_file)
