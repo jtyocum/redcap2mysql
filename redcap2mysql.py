@@ -407,6 +407,7 @@ def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
             data_dtype_dict[column] = DateTime
 
         # Send the data to the database.
+        sql.execute('SET default_storage_engine=MYISAM', conn)
         data.to_sql(name = mysql_table, con = conn, if_exists = 'replace',
             index = False, dtype = data_dtype_dict)
 
@@ -429,6 +430,7 @@ def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
             log_df.timestamp_utc, yearfirst=True, utc=True)
 
         # Send the log message dataframe to the database.
+        sql.execute('SET default_storage_engine=MYISAM', conn)
         log_df.to_sql(name = log_table, con = conn, if_exists = 'append',
             index = False, dtype = {'timestamp_utc':DateTime})
 
