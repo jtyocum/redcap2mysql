@@ -407,8 +407,7 @@ def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
             data_dtype_dict[column] = DateTime
 
         # Send the data to the database.
-        #
-        # Dataset may exceed 1000 columns. MYISAM supports wider data sets.
+        # NOTE: Dataset may exceed 1000 columns. MYISAM supports wider data sets.
         ins = inspect(conn)
 
         if mysql_table in ins.get_table_names():
