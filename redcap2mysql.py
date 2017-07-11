@@ -407,9 +407,20 @@ def send_to_db(data_path, project, csv_file, dataset, mysql_table, log_table,
             data_dtype_dict[column] = DateTime
 
         # Send the data to the database.
-        sql.execute('SET default_storage_engine=MYISAM', conn)
-        data.to_sql(name = mysql_table, con = conn, if_exists = 'replace',
-            index = False, dtype = data_dtype_dict)
+        #
+        # Dataset may exceed 1000 columns. MYISAM supports wider data sets.
+        ins = inspect(conn)
+
+        if mysql_table in ins.get_table_names():
+            sql.execute('RENAME TABLE %s TO %s' % (mysql_table, mysql_table + '_OLD'), conn)
+            sql.execute('SET default_storage_engine=MYISAM', conn)
+            data.to_sql(name = mysql_table, con = conn, if_exists = 'fail',
+                index = False, dtype = data_dtype_dict)
+            sql.execute('DROP TABLE %s' % mysql_table + '_OLD', conn)
+        else:
+            sql.execute('SET default_storage_engine=MYISAM', conn)
+            data.to_sql(name = mysql_table, con = conn, if_exists = 'fail',
+                index = False, dtype = data_dtype_dict)
 
         # Create a ISO 8601 timestamp for logging. Use UTC for consistency.
         timestamp = '{:%Y-%m-%dT%H:%M:%SZ}'.format(
