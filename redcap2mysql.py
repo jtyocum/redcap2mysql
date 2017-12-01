@@ -317,7 +317,7 @@ def parse_csv(csv_file):
         num_lines = sum(1 for line in open(csv_file))
         if num_lines > 1:
             try:
-                data = pd.read_csv(csv_file, index_col=False)
+                data = pd.read_csv(csv_file, engine='c', low_memory=False, index_col=False)
                 data.insert(0, 'id', range(1, 1 + len(data)))
                 return(data)
             except pd.parser.CParserError, err:
